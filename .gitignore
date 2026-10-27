@@ -1,0 +1,38 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments (the documented Playwright venv lives at ~/.venvs/video-studio)
+.venv/
+venv/
+env/
+ENV/
+
+# Generated video project outputs.
+# Scoped to output/ (and shot/frame renders) so nothing shipped under hyperlens/ is ignored.
+output/*.mp4
+output/*.mov
+output/*.mkv
+output/*.webm
+output/*.m4v
+output/*.srt
+output/*.ass
+output/*.wav
+output/*.mp3
+output/*.aac
+output/*.flac
+output/*.png
+output/*.jpg
+output/*.jpeg
+output/*.webp
+output/qc/
+shots/*.mp4
+frames/

@@ -1,0 +1,64 @@
+{
+  "project": "通用视频项目（竖屏示例）",
+  "output": {
+    "aspect": "9:16",
+    "width": 720,
+    "height": 1280,
+    "fps": 24,
+    "path": "output/final.mp4"
+  },
+  "shots": [
+    {
+      "id": "opening",
+      "type": "title",
+      "duration": 3,
+      "text": "视频片名\n副标题",
+      "subtitle": "视频片名",
+      "background": "#101820",
+      "color": "#FFFFFF",
+      "fade": 0.25
+    },
+    {
+      "id": "main-video",
+      "type": "video",
+      "source": "shots/main.mp4",
+      "duration": 5,
+      "volume": 0.9,
+      "subtitle": "在这里填写与画面或旁白一致的字幕"
+    },
+    {
+      "id": "detail-image",
+      "type": "image",
+      "source": "images/detail.png",
+      "duration": 4,
+      "motion": "zoom_in",
+      "zoom": 0.05,
+      "fit": "cover",
+      "subtitle": "图片镜头可以缓慢推进；底部约 25% 留给字幕"
+    },
+    {
+      "id": "ending",
+      "type": "title",
+      "duration": 3,
+      "text": "结尾互动问题？",
+      "subtitle": "结尾互动问题",
+      "background": "#0E2233",
+      "color": "#40C4FF",
+      "fade": 0.3
+    }
+  ],
+  "music": {
+    "source": "audio/music.wav",
+    "volume": 0.3,
+    "original_volume": 1.0,
+    "fade_out": 1.5
+  },
+  "subtitles": {
+    "burn_in": true,
+    "font_size": 38,
+    "margin_h": 36
+  },
+  "audio": {
+    "loudnorm": true
+  }
+}
