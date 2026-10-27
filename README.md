@@ -35,20 +35,79 @@ python3 -m venv ~/.venvs/video-studio
 
 venv 在别处时设置 `VIDEO_STUDIO_PYTHON=/path/to/bin/python`。这些路径和环境变量名保持原样，与脚本一致。
 
-## 安装
+## 在智能体里使用
 
-把本仓库的 `hyperlens/` 目录原样复制到智能体的技能目录，使其中的 `SKILL.md` 能被直接发现。例如 Claude Code：
+把 `hyperlens/` 整目录放进智能体的技能目录后，在对话里直接说要做视频。智能体读取 `SKILL.md`，按上面的流程推进；你负责把题目、稿子和选择发回去。目录内部文件保持原样。
+
+### 安装到各个智能体
+
+一条命令克隆仓库，并装进 Claude Code 的个人技能目录（本机所有项目可用）：
 
 ```bash
-mkdir -p ~/.claude/skills
-cp -a hyperlens ~/.claude/skills/hyperlens
+git clone https://github.com/LPink777/hyperlens && mkdir -p ~/.claude/skills && cp -r hyperlens/hyperlens ~/.claude/skills/
 ```
 
-Cursor 以及其他读取 `SKILL.md` 的智能体同理：把 `hyperlens/` 放进该智能体的 skills 目录即可，不要拆开或改名内部文件。
+`mkdir -p` 保证目标目录已存在，复制结果是 `~/.claude/skills/hyperlens/SKILL.md`。
 
-## 快速开始
+| 智能体 | 路径 | 范围 |
+|---|---|---|
+| Claude Code | `~/.claude/skills/hyperlens/` | 个人，本机所有项目 |
+| Claude Code | `.claude/skills/hyperlens/` | 当前项目，可提交给团队 |
+| Cursor | `~/.cursor/skills/hyperlens/` 或 `~/.agents/skills/hyperlens/` | 个人，本机 |
+| Cursor | 项目内 `.cursor/skills/hyperlens/` 或 `.agents/skills/hyperlens/` | 当前项目 |
+| Codex | `~/.agents/skills/hyperlens/` | 个人，所有项目 |
+| Codex | 仓库内 `.agents/skills/hyperlens/`（从启动目录向上直到仓库根都会扫描） | 当前仓库 |
+| 其他支持 `SKILL.md` 的智能体 | 放进它自己的 skills 目录；或在对话里让它阅读本仓库的 `hyperlens/SKILL.md` | 视宿主而定 |
 
-在 `hyperlens/` 目录中执行（路径均相对该目录）：
+Cursor 的技能目录以[官方文档](https://cursor.com/docs/skills)为准：项目级是 `.cursor/skills/` 与 `.agents/skills/`，用户级是 `~/.cursor/skills/` 与 `~/.agents/skills/`。同一文档还写明，Cursor 会兼容读取 Claude 与 Codex 的目录：`.claude/skills/`、`.codex/skills/`、`~/.claude/skills/`、`~/.codex/skills/`。
+
+Codex 的现行本地发现路径见 [Build skills](https://learn.chatgpt.com/docs/build-skills)：用户级 `$HOME/.agents/skills`，仓库级 `.agents/skills`。管理员机器上还有 `/etc/codex/skills`。
+
+当前项目或 Codex 个人目录，在目标位置执行：
+
+```bash
+# Claude Code，仅当前项目
+git clone https://github.com/LPink777/hyperlens && mkdir -p .claude/skills && cp -r hyperlens/hyperlens .claude/skills/
+
+# Cursor，仅当前项目
+git clone https://github.com/LPink777/hyperlens && mkdir -p .cursor/skills && cp -r hyperlens/hyperlens .cursor/skills/
+
+# Codex，个人技能
+git clone https://github.com/LPink777/hyperlens && mkdir -p ~/.agents/skills && cp -r hyperlens/hyperlens ~/.agents/skills/
+```
+
+### 怎么触发
+
+请求对上 `SKILL.md` 开头的 description 时，智能体会自动加载 Hyperlens。描述里的说法包括：做个视频、生成视频、文生视频/图生视频、把这篇稿子做成短视频、分镜到成片、动态图形/代码出片、一镜到底、配字幕/配乐、竖屏短视频。
+
+也可以点名调用：
+
+- Claude Code：输入 `/hyperlens`。目录名会触发；frontmatter 里的 `name` 是 `Hyperlens`，`/` 菜单上也可能显示这个名字。
+- Cursor：在 Agent 对话里输入 `/`，搜索该技能后选用（文档说明的手动方式是输入 `/` 并搜索技能名）。
+- Codex：在 CLI 或 IDE 扩展里输入 `$hyperlens`，或运行 `/skills` 浏览后插入。
+- 任何宿主：直接说「用 hyperlens skill 做一个…」。
+
+### 示例
+
+- 把这篇稿子做成 30 秒竖屏短视频
+- 给我的产品做一个一镜到底的功能演示视频
+- 用信息卡片风格做一条 20 秒科普视频
+- 给这段发布说明做一条横屏解说，烧录中文字幕
+
+### 接下来智能体会做什么
+
+1. **先发一张选择卡**，一次问完。前 5 题固定为时长、画幅、风格、参数（分辨率/帧率）、交付物，整张卡最多 8 题。回复「按推荐」或「你定」，它会采用每题的推荐项，并复述最终选择。
+2. **再出方案和镜头表**，发给你看过再开做（尤其是要用 AI 生成的时候）。
+3. **按镜头生产并质检**：逐镜验收、音频素材级验收、合成，然后做成片音频验收、审片和技术质检。
+4. **交付实际生成的文件**：成片 `output/final.mp4`，以及按选择卡附上的 SRT（合成输出为 `final.srt`）。选择卡里要了封面、`project.json` 或镜头表时，一并列出这些已经存在的路径。
+
+文生视频 / 图生视频（`GenerateVideo`、`GenerateImage`）会消耗该智能体的生成额度，前提是这个智能体提供这些工具。批量生成前它会先说明要生成几个镜头、每个大概多长。智能体没有这类生成工具时，镜头改走图形卡片或 HTML 动态合成。
+
+跑脚本需要智能体能使用 shell，并且环境里有 `python3` 和 `ffmpeg`（中文字幕还要 CJK 字体，见上一节）。每个新环境先在技能目录执行一次 `python3 scripts/video_pipeline.py doctor`。
+
+### 手动使用脚本
+
+不经过对话、自己在 `hyperlens/` 目录里跑时（路径均相对该目录）：
 
 ```bash
 python3 scripts/video_pipeline.py doctor
@@ -81,7 +140,30 @@ Workflow:
 
 `需求确认（选择卡） → 一件事与三个方案 → SPEC 与画风锁 → 镜头表（含物/动作/镜头/承接）→ lint → 后端路由 → 静帧/首帧确认 → 试拍 1–2 镜 → 镜头生产 → 逐镜验收 → 音频素材级验收 → project.json 检查 → 合成（字幕与声音）→ 成片音频验收 → 审片 + 技术质检 → 按镜头迭代`
 
-Requires Python 3, ffmpeg/ffprobe, and a CJK font (`fonts-noto-cjk`, or `VIDEO_STUDIO_FONT_REGULAR` / `VIDEO_STUDIO_FONT_BOLD`). HTML rendering optionally uses a Playwright venv at `~/.venvs/video-studio` (override with `VIDEO_STUDIO_PYTHON`). Copy the `hyperlens/` folder into your agent's skills directory (Claude Code: `~/.claude/skills/hyperlens/`, Cursor, or similar) and start with `python3 scripts/video_pipeline.py doctor`, then `init`, `check`, and `build`. See `hyperlens/SKILL.md`.
+Requires Python 3, ffmpeg/ffprobe, and a CJK font (`fonts-noto-cjk`, or `VIDEO_STUDIO_FONT_REGULAR` / `VIDEO_STUDIO_FONT_BOLD`). HTML rendering optionally uses a Playwright venv at `~/.venvs/video-studio` (override with `VIDEO_STUDIO_PYTHON`). The agent needs a shell with `python3` and `ffmpeg`; on a new machine run `python3 scripts/video_pipeline.py doctor` first.
+
+Install by copying the inner `hyperlens/` folder into the agent's skills directory:
+
+```bash
+git clone https://github.com/LPink777/hyperlens && mkdir -p ~/.claude/skills && cp -r hyperlens/hyperlens ~/.claude/skills/
+```
+
+| Agent | Path |
+|---|---|
+| Claude Code, personal | `~/.claude/skills/hyperlens/` |
+| Claude Code, this repo | `.claude/skills/hyperlens/` |
+| Cursor, personal | `~/.cursor/skills/hyperlens/` or `~/.agents/skills/hyperlens/` |
+| Cursor, this repo | `.cursor/skills/hyperlens/` or `.agents/skills/hyperlens/` |
+| Codex, personal | `~/.agents/skills/hyperlens/` |
+| Codex, this repo | `.agents/skills/hyperlens/` |
+
+Cursor also reads `.claude/skills/`, `.codex/skills/`, `~/.claude/skills/`, and `~/.codex/skills/` ([docs](https://cursor.com/docs/skills)). Codex scans `.agents/skills` from the working directory up to the repo root ([docs](https://learn.chatgpt.com/docs/build-skills)). Other SKILL.md hosts: drop the folder in that host's skills directory, or ask the agent to read `hyperlens/SKILL.md`.
+
+The agent loads the skill when the request matches its description (做个视频, 生成视频, 分镜到成片, 竖屏短视频, and the other phrases in `SKILL.md`). You can also name it: Claude Code `/hyperlens` (the `/` menu may show `Hyperlens`, the frontmatter name), Cursor `/` then search for the skill, Codex `$hyperlens` or `/skills`, or say “用 hyperlens skill 做一个…”.
+
+Example: “把这篇稿子做成 30 秒竖屏短视频”. The agent sends a selection card first (时长 / 画幅 / 风格 / 参数 / 交付物). Reply “按推荐” to take the defaults. It then shows a storyboard, produces the shots, runs QC, and delivers `output/final.mp4` plus the SRT. AI video or image generation spends that agent's generation quota when those tools exist; otherwise shots use information cards or the HTML renderer.
+
+Manual CLI, from the `hyperlens/` directory: `doctor`, then `init`, `check`, and `build` (see 手动使用脚本 above).
 
 ## Credits
 
