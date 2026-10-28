@@ -3,6 +3,8 @@
 
 输入：一个 Markdown 文件，表前可写「画风：」「色板：」「角色：」三行；表格表头需含「时间段」或「时长」，
 可选列：物、动作、镜头、屏上字、承接。时间段写 0–3 / 0-3 / 0:03–0:07；或只写「时长」列（秒）。
+v3 新列（拍、关键、角色、场景或界面状态、道具或元素、景别、预定后端、剧本行号、首帧编号）可以出现，
+本脚本只核对「关键」「预定后端」的取值；拍与剧本的对应、角色一致等故事层检查由 story_lint.py 负责。
 
 用法：python3 storyboard_lint.py 镜头表.md [--target 15] [--code]
   --target  目标总时长（秒），偏差 >10% 报黄
@@ -16,6 +18,10 @@ ACCENT = {"快推", "砸入", "甩", "甩镜"}
 TEXTY = re.compile(r"(标题|字卡|要点|金句|文字|列表|title)", re.I)
 EMPTY = re.compile(r"^(空镜|纯色|黑场|渐变底|背景)?$")
 BLUEPURPLE = re.compile(r"#(?:[4-9a-f][0-9a-f][0-4][0-9a-f][a-f][0-9a-f]|[0-3][0-9a-f][0-3][0-9a-f][c-f][0-9a-f])", re.I)
+
+
+FIRST = ("时间段", "时长", "镜号", "id", "拍", "镜")
+BACKENDS = ("AI 视频", "AI 图", "HTML", "素材", "标题卡")
 
 
 def tsec(s):
@@ -35,7 +41,7 @@ def parse(path):
             hdr = None if hdr is not None else hdr; continue
         cells = [c.strip() for c in line.strip("|").split("|")]
         if hdr is None:
-            if cells and cells[0] in ("时间段", "时长", "镜号", "id") and any(k in cells for k in ("时间段", "时长")):
+            if cells and (cells[0] in FIRST or "物" in cells) and any(k in cells for k in ("时间段", "时长")):
                 if rows: break          # 只读第一张镜头表
                 hdr = cells
             continue
@@ -74,6 +80,12 @@ def main():
         if obj is not None and (EMPTY.match(obj) or TEXTY.search(obj)): R(f"镜{i}「物」是空画面或文字（{obj or '空'}）：写一个能指着说「就是它」的东西")
         act = r.get("动作", r.get("它在做什么", None))
         if act is not None and (not act or re.fullmatch(r"(出现|显示|展示|淡入|逐条出现)", act)): R(f"镜{i}「动作」写成了版面词（{act or '空'}）：写物自己的动词")
+        if "关键" in r and r["关键"] and r["关键"] not in ("是", "否"):
+            Y(f"镜{i}「关键」只写 是/否（现为 {r['关键']}）")
+        be = r.get("预定后端")
+        if be is not None:
+            if not be: Y(f"镜{i} 没填「预定后端」（2.8 先按 backend_routing.md 速查给一个）")
+            elif not any(be.replace(" ", "").upper().startswith(b.replace(" ", "").upper()) for b in BACKENDS): Y(f"镜{i} 预定后端「{be}」不在 {'/'.join(BACKENDS)} 里")
         txt = r.get("屏上字", "")
         if len(re.sub(r"\s", "", txt)) > 8: Y(f"镜{i} 屏上字 {len(txt)} 字 >8：整句交给字幕")
     if len(short) > len(rows) / 3: Y(f"短于 {(2 if a.code else 1.5)}s 的镜头有 {len(short)} 个（镜{short}）：短镜只留给连击和重音")

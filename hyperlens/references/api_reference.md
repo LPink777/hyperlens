@@ -10,7 +10,17 @@
 python3 scripts/video_pipeline.py doctor
 ```
 
-输出 ffmpeg 路径、自动选中的 H.264 编码器（优先 libx264，其次 libopenh264，再试硬件编码器，均做一次真实试编码）、所需滤镜和中文字体。环境变量：`VIDEO_STUDIO_H264_ENCODER`、`VIDEO_STUDIO_FONT_REGULAR`、`VIDEO_STUDIO_FONT_BOLD`、`VIDEO_STUDIO_FONT_FAMILY`。
+输出 ffmpeg 路径、可选依赖（HTML 渲染用的 Playwright、story_lint 用的 jieba，缺少时只提示不报错）、自动选中的 H.264 编码器（优先 libx264，其次 libopenh264，再试硬件编码器，均做一次真实试编码）、所需滤镜和中文字体。环境变量：`VIDEO_STUDIO_H264_ENCODER`、`VIDEO_STUDIO_FONT_REGULAR`、`VIDEO_STUDIO_FONT_BOLD`、`VIDEO_STUDIO_FONT_FAMILY`。
+
+## 故事层规划与检查
+
+```bash
+python3 scripts/story_lint.py --plan <project>/project.json     # 按 story.genre / story.duration 算步骤清单，写回 story.plan（--dry-run 只打印，--json 输出 JSON）
+python3 scripts/story_lint.py --plan --genre 教程 --duration 60  # 还没有 project.json 时只打印
+python3 scripts/story_lint.py <project>/                         # 检查 STORY/script/outline/镜头表/PROMPTS/QC 等，红灯非零退出
+```
+
+只用标准库；装了 jieba 时多一项“复述画面”参考（黄灯）。规则见 `references/story_pipeline.md`。
 
 ## 创建项目
 

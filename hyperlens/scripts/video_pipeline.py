@@ -554,6 +554,12 @@ def doctor():
             pw = cand
             break
     report["html_render_python"] = pw or "missing (optional): python3 -m venv ~/.venvs/video-studio && ~/.venvs/video-studio/bin/pip install playwright && ~/.venvs/video-studio/bin/python -m playwright install chromium"
+    # optional: jieba for story_lint.py 的“复述画面”参考检查（缺少时改为纯人工，不算错误）
+    try:
+        import importlib.util
+        report["jieba"] = "ok" if importlib.util.find_spec("jieba") else "missing (optional): 复述画面改为纯人工；需要时 pip install jieba"
+    except (ImportError, ValueError):
+        report["jieba"] = "missing (optional): 复述画面改为纯人工；需要时 pip install jieba"
     report["ok"] = all(report["filters"].values()) and not any(str(v).startswith("ERROR") for v in report.values()) and bool(report["ffmpeg"])
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report["ok"] else 1
@@ -562,7 +568,7 @@ def doctor():
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("doctor", help="check ffmpeg, H.264 encoder, filters and CJK fonts")
+    sub.add_parser("doctor", help="check ffmpeg, H.264 encoder, filters, CJK fonts; optional Playwright and jieba")
     init = sub.add_parser("init", help="create a minimal project.json")
     init.add_argument("manifest", type=Path)
     init.add_argument("--title", default="未命名视频")

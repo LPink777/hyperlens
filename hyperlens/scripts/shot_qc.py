@@ -3,10 +3,12 @@
 
 用法:
   python3 shot_qc.py shots/s01.mp4 [shots/s02.mp4 ...] [--expect "期望画面"] [--duration 8]
-                      [--width 1920 --height 1080] [--fps 30] [--out frames/qc] [--json]
+                      [--width 1920 --height 1080] [--fps 30] [--out frames/qc] [--json] [--key]
 
 检查：可解码、分辨率/时长（可选容差）、黑帧段、冻结段；输出等距抽帧拼图和一段审片提示。
 帧率/分辨率不符时只给警告（合成时会统一缩放），黑帧/冻结/不可解码给失败。
+--key：镜头表里“关键=是”的故事关键镜头。审片提示会要求审阅者核对故事动作是否完成，
+       输出里附关键镜头保护规则（重做不能直接改拍背影/剪影/结果/去掉动作；改动作要先过 2.9 局部复审）。
 """
 import argparse, json, os, re, subprocess, sys
 
@@ -64,8 +66,15 @@ DEFECTS = ("物体凭空出现或消失、结果没有过程；多指/少指/关
            "现代物品或可辨认的真实人物；黑帧、冻结、闪烁、明显压缩块")
 
 
-def review_prompt(name, expect, duration):
-    return (f"镜头 {name}（约 {duration:.1f} 秒）。预期画面：{expect or '（见镜头表）'}。"
+KEY_RULE = ("关键镜头保护：重做时先试不改动作的修法（锁关键帧再图生视频、首尾帧都锁、换景别、换后端 HTML/实拍素材）；"
+            "不能直接用“改拍背影/剪影”“改拍结果而非过程”“去掉动作”。确实要改动作：先改 script.md 对应拍，"
+            "做 2.9 局部复审（钩子、因果链、结尾、复述），QC.md 记 动作改动=是、故事复核=STORY_QC 版本号，过了再生产。")
+
+
+def review_prompt(name, expect, duration, key=False):
+    extra = ("这是故事关键镜头：请单独说明预期的故事动作（如伸手、按下、转身）是否在画面里完整发生，"
+             "以及可用片段是否仍包含这个动作。" if key else "")
+    return (extra + f"镜头 {name}（约 {duration:.1f} 秒）。预期画面：{expect or '（见镜头表）'}。"
             f"请：1) 用陌生人口吻逐句描述实际发生了什么；2) 与预期的符合度 0-10；"
             f"3) 逐项检查以下缺陷是否出现及出现在第几秒：{DEFECTS}；"
             f"4) 给出无 P0 缺陷的可用片段起止秒数；5) 结论：通过 / 剪用 / 重做，并说明理由。")
@@ -82,6 +91,7 @@ def main():
     ap.add_argument("--fps", type=float)
     ap.add_argument("--out", default="frames/qc")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--key", action="store_true", help="故事关键镜头（镜头表 关键=是）")
     a = ap.parse_args()
 
     results, any_fail = [], False
@@ -108,7 +118,10 @@ def main():
             res["warn"].append("疑似冻结段: " + ", ".join(
                 f"{s:.2f}-{(f'{e:.2f}' if e else '结尾')}s" for s, e in freeze))
         res["sheet"] = sheet(clip, a.out, info["duration"])
-        res["review_prompt"] = review_prompt(os.path.basename(clip), a.expect, info["duration"])
+        res["review_prompt"] = review_prompt(os.path.basename(clip), a.expect, info["duration"], a.key)
+        if a.key:
+            res["key_shot"] = True
+            res["key_rule"] = KEY_RULE
         res["status"] = "FAIL" if res["fail"] else ("WARN" if res["warn"] else "OK")
         any_fail |= bool(res["fail"])
         results.append(res)
@@ -127,6 +140,8 @@ def main():
                 print("  抽帧拼图:", r["sheet"])
             if r.get("review_prompt"):
                 print("  审片提示:", r["review_prompt"])
+            if r.get("key_rule"):
+                print("  关键镜头:", r["key_rule"])
         print("\n技术自检通过不代表画面合格：必须再做独立审片（references/shot_qc.md）。")
     sys.exit(1 if any_fail else 0)
 

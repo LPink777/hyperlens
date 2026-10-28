@@ -15,6 +15,7 @@
 | `music` | object | 可选背景音乐 |
 | `subtitles` | object | 字幕设置 |
 | `audio.loudnorm` | boolean | 默认 true，目标约 -16 LUFS、TP -1.5 dB |
+| `story` | object | 可选；故事层配置，合成器忽略。`genre`、`duration`，可选 `reveal`、`ai_image`、`ai_video`、`silent`、`has_facts`、`has_protagonist`；`plan` 由 `story_lint.py --plan` 写回（步骤、文件、确认点、lint 开关、验收权重），不手写。见 `story_pipeline.md` |
 
 ## 视频镜头
 

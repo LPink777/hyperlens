@@ -7,6 +7,18 @@
     "fps": 24,
     "path": "output/final.mp4"
   },
+  "story": {
+    "genre": "产品",
+    "duration": 15,
+    "reveal": "结果先行型",
+    "ai_image": false,
+    "ai_video": true,
+    "silent": false,
+    "has_facts": true,
+    "has_protagonist": true,
+    "_comment": "genre/duration 等由第 1 步选择卡填写；plan 由 `python3 scripts/story_lint.py --plan project.json` 写回（含步骤清单、文件、确认点、lint 开关、验收权重），不要手写",
+    "plan": null
+  },
   "shots": [
     {
       "id": "opening",
