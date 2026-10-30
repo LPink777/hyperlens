@@ -5,6 +5,8 @@
   整体：采样率/声道、积分响度 LUFS、真峰值 dBTP、采样峰值、削波样本数、直流偏移
   逐窗：响度突跳、噼啪/静电/爆音（陡峭起音的短促宽带脉冲）、嘶嘶声/高频噪声异常、
         静音段或语句间隙里的底噪、窗口内削波
+  嗡声：持续低频单音（静态正弦铺底/电源 50/60 Hz 及谐波），所有 kind 默认查
+  间隙：旁白停顿处铺底过响、停顿处低频（<150 Hz）偏高（mix/auto 默认查；--vo 给旁白分轨时最准）
   输出：问题时间点（合并成区间）、全程频谱图、每个问题区间的局部频谱图；有问题 exit 1。
 
 用法：
@@ -12,7 +14,9 @@
   python3 audio_qc.py audio/amb_fire.wav --kind ambient
   python3 audio_qc.py output/final.mp4 --kind mix --lufs -16 --tp -1
   python3 audio_qc.py a.wav b.wav c.mp3 --out qc/audio     # 批量
-  --json 输出机器可读结果；--no-png 不出图。
+  python3 audio_qc.py output/final.mp4 --kind mix --vo work/vo.wav            # 用旁白分轨定位停顿
+  python3 audio_qc.py output/final.mp4 --fix-hum output/final_dehum.mp4       # 只有成片时：测稳态单音→陷波→两遍响度
+  --json 输出机器可读结果；--no-png 不出图；--no-hum 关掉嗡声检查。
 依赖：ffmpeg/ffprobe、numpy。
 """
 import argparse, json, os, re, subprocess, sys
@@ -94,7 +98,75 @@ LABEL = {
     'gap_noise': '静音或间隙里有底噪',
     'jump': '响度突跳',
     'dc': '直流偏移',
+    'hum': '嗡声：持续低频单音（静态正弦铺底或电源嗡声）',
+    'bed_level': '停顿处铺底过响',
+    'lf_bed': '停顿处低频偏高（低频嗡/轰）',
 }
+
+# ---- 嗡声 / 间隙检查的阈值（依据见 references/audio_qc.md「判定标准」）
+HUM_PCT = 20          # 每个频点取全片 20 分位：只有 ≥80% 时间都在的稳态单音能留下，旁白和旋律被压掉
+HUM_FMIN, HUM_FMAX = 30, 500
+HUM_REL_P0 = -20.0    # 稳态单音合计电平比主体电平高于 −20 dB 判 P0（铺底应比旁白低 15–20 dB 以上）
+HUM_MIN_DBFS = -70.0
+BED_REL_P0 = -15.0    # 停顿处整体电平比说话段高于 −15 dB 判 P0（铺底比旁白低 15–20 dB 的下限）
+LF_REL_P0 = -25.0     # 停顿处 <150 Hz 电平比说话段高于 −25 dB 判 P0（实测：坏片 −7…−14 dB，修好 −28…−31 dB）
+
+def tnr_threshold(f):
+    """ECMA-74 附录 D 的单音噪声比判据：f<1 kHz 时 8 + 8.33·log10(1000/f) dB，否则 8 dB。"""
+    return 8 + 8.33 * np.log10(1000 / f) if f < 1000 else 8.0
+
+def hum_scan(x):
+    """找持续低频单音。x: 单声道 48k。返回 dict(tones=[(Hz, TNR, dBFS)], total, body, rel, mains)。"""
+    W = SR; n = len(x) // W
+    if n < 5:
+        return None
+    win = np.hanning(W); fr = np.fft.rfftfreq(W, 1 / SR); top = int(HUM_FMAX + 60)
+    S = np.empty((n, top + 1))
+    for i in range(n):
+        S[i] = (np.abs(np.fft.rfft(x[i * W:(i + 1) * W] * win)) ** 2)[: top + 1]
+    rms = 10 * np.log10((x[: n * W].reshape(n, W) ** 2).mean(axis=1) + 1e-20)
+    body = float(np.median(rms[rms >= np.percentile(rms, 60)]))
+    St = np.percentile(S, HUM_PCT, axis=0) + 1e-20; fr = fr[: top + 1]
+    norm = (win ** 2).sum() * W / 2
+    tones = []
+    for b in range(HUM_FMIN, HUM_FMAX + 1):
+        if St[b] < St[b - 1] or St[b] < St[b + 1]:
+            continue
+        m = (np.abs(fr - fr[b]) <= 50) & (np.abs(fr - fr[b]) > 3)
+        tnr = 10 * np.log10(St[b - 1: b + 2].sum() / (np.median(St[m]) * 100))
+        lvl = 10 * np.log10(St[b - 1: b + 2].sum() / norm)
+        if tnr >= tnr_threshold(fr[b]) and lvl > HUM_MIN_DBFS:
+            tones.append((int(fr[b]), round(float(tnr), 1), round(float(lvl), 1)))
+    total = float(10 * np.log10(sum(10 ** (t[2] / 10) for t in tones))) if tones else -120.0
+    mains = [t[0] for t in tones if any(abs(t[0] - h * k) <= 1 for h in (50, 60) for k in range(1, 9))]
+    return dict(tones=tones, total=round(total, 1), body=round(body, 1), rel=round(total - body, 1), mains=mains)
+
+def _band_db(frames, lo, hi):
+    F = np.abs(np.fft.rfft(frames * np.hanning(frames.shape[1]), axis=1)) ** 2
+    f = np.fft.rfftfreq(frames.shape[1], 1 / SR); sel = (f >= lo) & (f < hi)
+    return 10 * np.log10(2 * F[:, sel].sum(axis=1) / (np.hanning(frames.shape[1]) ** 2).sum() / frames.shape[1] + 1e-20)
+
+def gap_scan(x, vo=None):
+    """停顿处铺底电平。vo 给了就用旁白分轨定停顿（<−60 dBFS 为停顿，>−40 为说话），
+    否则用 1–4 kHz 语音频带自动分（≥ 90 分位 −15 dB 为说话，≤ 90 分位 −28 dB 为停顿）。"""
+    f = SR // 10; n = len(x) // f
+    if n < 50:
+        return None
+    fr = x[: n * f].reshape(n, f)
+    tot = 10 * np.log10((fr ** 2).mean(axis=1) + 1e-20)
+    lf = _band_db(fr, 20, 150)
+    if vo is not None:
+        k = min(n, len(vo) // f); ev = 10 * np.log10((vo[: k * f].reshape(k, f) ** 2).mean(axis=1) + 1e-20)
+        gap = np.zeros(n, bool); sp = np.zeros(n, bool); gap[:k] = ev < -60; sp[:k] = ev > -40; mode = 'vo'
+    else:
+        band = _band_db(fr, 1000, 4000); p90 = np.percentile(band, 90)
+        sp = band >= p90 - 15; gap = (band <= p90 - 28) & (tot > -90); mode = 'auto'
+    if gap.sum() < 20 or sp.sum() < 50:
+        return dict(mode=mode, skipped=True, gap_s=gap.sum() / 10, speech_s=sp.sum() / 10)
+    speech = float(np.median(tot[sp])); g = float(np.median(tot[gap])); glf = float(np.median(lf[gap]))
+    return dict(mode=mode, skipped=False, gap_s=round(gap.sum() / 10, 1), speech_s=round(sp.sum() / 10, 1),
+                speech=round(speech, 1), gap=round(g, 1), gap_lf=round(glf, 1),
+                bed_rel=round(g - speech, 1), lf_rel=round(glf - speech, 1))
 
 def analyze(path, kind, win, args):
     cfg = dict(KIND_DEFAULTS[kind])
@@ -159,7 +231,7 @@ def analyze(path, kind, win, args):
     for w in range(nwin):
         a = int(w * win * SR); b = min(len(x), int((w + 1) * win * SR))
         seg = x[a:b]
-        if len(seg) < SR * 0.05: rms_db.append(-120); hf_r.append(0); continue
+        if len(seg) < SR * 0.05: rms_db.append(-120); hf_r.append(0); sustained.append(0); continue
         r = float(db(np.sqrt((seg ** 2).mean())))
         S = np.abs(np.fft.rfft(seg * np.hanning(len(seg)))) ** 2; f = np.fft.rfftfreq(len(seg), 1 / SR)
         hr = float(S[f > 4000].sum() / (S.sum() + 1e-20)) if r > -70 else 0.0
@@ -214,6 +286,28 @@ def analyze(path, kind, win, args):
                 i = j + 1
             else:
                 i += 1
+    # 嗡声 / 间隙
+    if not args.no_hum:
+        hs = hum_scan(x); res['hum'] = hs
+        if hs and hs['tones']:
+            tl = '、'.join(f"{t[0]} Hz" for t in hs['tones'][:8])
+            msg = f"持续低频单音 {tl}（合计 {hs['total']:.1f} dBFS，比主体 {hs['body']:.1f} dBFS {hs['rel']:+.1f} dB）"
+            if hs['mains']:
+                msg += f"；其中 {hs['mains']} 落在 50/60 Hz 谐波上，像电源嗡声"
+            if hs['rel'] > HUM_REL_P0:
+                hits.append((0, dur, 'hum', msg + f'，超过 {HUM_REL_P0:.0f} dB 上限'))
+            else:
+                res.setdefault('notes', []).append('P1 ' + msg + '：电平低于上限，抽听确认')
+    vo = None
+    if getattr(args, 'vo', None):
+        vo = decode(args.vo, probe(args.vo)['ch']).mean(axis=1).astype(np.float64)
+    if kind in ('mix', 'auto') or vo is not None:
+        gs = gap_scan(x, vo); res['gaps'] = gs
+        if gs and not gs['skipped']:
+            if gs['bed_rel'] > BED_REL_P0:
+                hits.append((0, dur, 'bed_level', f"停顿处 {gs['gap']:.1f} dBFS，只比说话段 {gs['speech']:.1f} dBFS 低 {-gs['bed_rel']:.1f} dB（要求 ≥{-BED_REL_P0:.0f} dB；停顿判定：{gs['mode']}）"))
+            if gs['lf_rel'] > LF_REL_P0:
+                hits.append((0, dur, 'lf_bed', f"停顿处 <150 Hz {gs['gap_lf']:.1f} dBFS，只比说话段低 {-gs['lf_rel']:.1f} dB（要求 ≥{-LF_REL_P0:.0f} dB）"))
     # 整体
     glob = []
     if clipped_total: glob.append(f'削波样本 {clipped_total} 个')
@@ -235,6 +329,71 @@ def spectro(path, png, ss=None, to=None, w=1800, h=600):
     cmd += ['-i', path, '-vn', '-lavfi', f'showspectrumpic=s={w}x{h}:legend=1:scale=log:stop=16000', png]
     subprocess.run(cmd, capture_output=True)
 
+def dehum_chain(hs, gs=None):
+    """根据 hum_scan / gap_scan 结果生成补救滤镜链：高通 + 每个稳态单音一个陷波。"""
+    parts = []
+    if hs and hs['tones']:
+        parts.append('highpass=f=90:poles=2')
+        for f0, _, lvl in hs['tones']:
+            g = float(np.clip((hs['body'] - 35) - lvl, -40, -6))
+            parts.append(f'equalizer=f={f0}:t=q:w=6:g={g:.0f}')
+    if gs and not gs.get('skipped') and gs['lf_rel'] > LF_REL_P0:
+        parts += ['highpass=f=120:poles=2', 'highpass=f=120:poles=2']
+    return ','.join(parts)
+
+def _loudnorm_measure(path, pre=''):
+    af = (pre + ',' if pre else '') + 'loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json'
+    t = sh(['ffmpeg', '-hide_banner', '-nostats', '-i', path, '-vn', '-af', af, '-f', 'null', '-']).stderr
+    return json.loads(t[t.rindex('{'): t.rindex('}') + 1])
+
+def fix_hum(src, dst, args):
+    info = probe(src)
+    if not info:
+        print(f'hyperlens: {src} 没有音轨', file=sys.stderr); return 1
+    x = decode(src, info['ch']).mean(axis=1).astype(np.float64)
+    hs = hum_scan(x); gs = gap_scan(x)
+    chain = dehum_chain(hs, gs)
+    gtxt = '跳过（没有足够的说话/停顿）' if (not gs or gs.get('skipped')) else f"停顿比说话低 {-gs['bed_rel']:.1f} dB，停顿 <150 Hz 比说话低 {-gs['lf_rel']:.1f} dB"
+    print(f'稳态单音 (Hz, TNR dB, dBFS)：{hs["tones"] if hs and hs["tones"] else "无"}；停顿：{gtxt}')
+    if hs and hs['tones'] and hs['rel'] > -3:
+        print('注意：稳态单音几乎就是全部内容（铺底本身就是主体），陷波后响度归一会把它重新拉高；这种片子要换铺底重混，补救只能当临时版。')
+    if not chain:
+        print('没有测到持续低频单音或停顿低频偏高，不需要补救。'); return 0
+    lufs = args.lufs if args.lufs is not None else -16.0
+    tp = min(args.tp if args.tp is not None else -1.5, -1.0)
+    print(f'补救滤镜链：{chain}')
+    if args.dry_run:
+        return 0
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix='hyperlens-dehum-') as td:
+        a = os.path.join(td, 'a.wav')
+        if sh(['ffmpeg', '-v', 'error', '-y', '-i', src, '-vn', '-af', chain, '-ar', str(SR), '-c:a', 'pcm_f32le', a]).returncode:
+            print('hyperlens: 补救滤镜链执行失败', file=sys.stderr); return 1
+        m = _loudnorm_measure(a); gain = lufs - float(m['input_i'])
+        if float(m['input_tp']) + gain > tp - 0.3:   # 线性增益会顶破真峰值：先限幅再量，保证第二遍是线性模式
+            lim = float(np.clip(10 ** ((tp - gain - 1.0) / 20), 0.0625, 1.0)); b = os.path.join(td, 'b.wav')
+            sh(['ffmpeg', '-v', 'error', '-y', '-i', a, '-af', f'alimiter=limit={lim:.4f}:level=0:latency=1:release=80', '-c:a', 'pcm_f32le', b])
+            a = b; m = _loudnorm_measure(a)
+        ln = (f"loudnorm=I={lufs}:TP={tp}:LRA=11:measured_I={m['input_i']}:measured_TP={m['input_tp']}:measured_LRA={m['input_lra']}:"
+              f"measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true")
+        has_v = bool(json.loads(sh(['ffprobe', '-v', 'error', '-select_streams', 'v', '-show_entries', 'stream=index', '-of', 'json', src]).stdout or '{}').get('streams'))
+        cmd = ['ffmpeg', '-v', 'error', '-y']
+        if has_v:
+            cmd += ['-i', src, '-i', a, '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-af', ln, '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', dst]
+        else:
+            cmd += ['-i', a, '-af', ln, '-ar', '48000', dst]
+        r = sh(cmd)
+        if r.returncode:
+            print(f'hyperlens: 写出失败：{r.stderr.strip()}', file=sys.stderr); return 1
+    y = decode(dst, probe(dst)['ch']).mean(axis=1).astype(np.float64)
+    h2 = hum_scan(y); g2 = gap_scan(y)
+    still = (h2 and h2['tones'] and h2['rel'] > HUM_REL_P0) or (g2 and not g2.get('skipped') and (g2['lf_rel'] > LF_REL_P0 or g2['bed_rel'] > BED_REL_P0))
+    print(f'已写出 {dst}。复查：python3 {sys.argv[0]} {dst} --kind mix')
+    if still:
+        print('hyperlens: 补救后仍不达标（嗡声或停顿铺底仍超限），需要回到分轨换铺底/降电平后重混', file=sys.stderr)
+        return 2
+    return 0
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('files', nargs='+')
@@ -250,10 +409,18 @@ def main():
     ap.add_argument('--click-rate', type=float, default=3.0, help='每秒 ≥N 个宽带陡峭脉冲即标记')
     ap.add_argument('--crackle-run', type=float, default=5.0, help='持续型噼啪：连续 N 秒每秒都有脉冲即标记')
     ap.add_argument('--jump-db', type=float, default=10.0)
+    ap.add_argument('--vo', help='旁白分轨（vo.wav 等，和被检文件同一时间轴），用于准确找停顿')
+    ap.add_argument('--no-hum', action='store_true', help='不做嗡声检查')
+    ap.add_argument('--fix-hum', metavar='OUT', help='只有成片时的补救：测出稳态单音→高通+陷波→两遍线性响度归一，写到 OUT（视频流直接拷贝）')
+    ap.add_argument('--dry-run', action='store_true', help='配合 --fix-hum：只打印滤镜链不写文件')
     ap.add_argument('--out', help='频谱图目录（默认 <文件目录>/qc）')
     ap.add_argument('--no-png', action='store_true')
     ap.add_argument('--json', action='store_true')
     args = ap.parse_args()
+    if args.fix_hum:
+        if len(args.files) != 1:
+            sys.exit('hyperlens: --fix-hum 一次只处理一个文件')
+        sys.exit(fix_hum(args.files[0], args.fix_hum, args))
     allres = []; bad = False
     for p in args.files:
         r = analyze(p, args.kind, args.win, args)
@@ -276,6 +443,7 @@ def main():
                 print(f"  时长 {s['duration']}s  {s['sample_rate']}Hz/{s['channels']}ch  积分 {s['lufs']:.1f} LUFS  "
                       f"真峰值 {s['true_peak']:.1f} dBTP  采样峰值 {s['sample_peak']:.1f} dBFS  削波样本 {s['clipped_samples']}")
             for g in r.get('global_issues', []): print(f'  [整体] {g}')
+            for nte in r.get('notes', []): print(f'  [提示] {nte}')
             for it in r['issues']:
                 print(f"  [{fmt(it['start'])} – {fmt(it['end'])}] {it['msg']}：{it.get('detail','')}")
             if r.get('spectrum'): print(f"  频谱图：{r['spectrum']}")

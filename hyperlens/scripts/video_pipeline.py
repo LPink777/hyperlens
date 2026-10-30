@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Topic-agnostic video assembly: titles, images, videos, subtitles and music.
 
+Music/bed audio: 150 Hz high-pass, ducking under the shot audio, limiter and two-pass linear loudnorm
+(see references/audio_qc.md). `bed` generates a tone-free ambience bed when there is no licensed music.
+
 Only Python's standard library, ffmpeg and ffprobe are required.
 
 Environment overrides:
@@ -280,6 +283,18 @@ def validate_project(project, require_sources=True):
     music = project.get("music")
     if music and require_sources and not resolve(base, music["source"]).is_file():
         errors.append(f"music: missing source {resolve(base, music['source'])}")
+    if music:
+        try:
+            if float(music.get("volume", MUSIC_DEFAULTS["volume"])) > 1:
+                warnings.append(f"music.volume {music.get('volume')} > 1: the bed is being boosted, so it is probably too quiet or too static at the source; "
+                                "regenerate it (video_pipeline.py bed) or pick another track instead of turning it up, then run audio_qc.py --kind mix")
+            hp = music.get("highpass", MUSIC_DEFAULTS["highpass"])
+            if hp in (None, False, 0) or float(hp) < 120:
+                warnings.append(f"music.highpass {hp}: below 120 Hz the bed masks the voice and reads as hum; keep it at 120-150 Hz unless the music really needs bass")
+        except (TypeError, ValueError):
+            errors.append("music.volume / music.highpass must be numbers")
+        if music.get("duck", True) is False:
+            warnings.append("music.duck is off: the bed will not dip under the narration")
     report = {"project": project["project"], "output": f"{out['width']}x{out['height']}@{out['fps']}", "duration": round(total, 3),
               "shots": shots, "errors": errors}
     if out.get("variant"):
@@ -544,10 +559,112 @@ def normalize_shot(project, shot, duration, target, temp):
     run(command)
 
 
+# ---------------------------------------------------------------- music / bed audio
+MUSIC_DEFAULTS = {"volume": 0.25, "original_volume": 1.0, "fade_in": 0.0, "fade_out": 1.0, "highpass": 150,
+                  "duck": {"threshold": 0.02, "ratio": 6, "attack": 20, "release": 400}}
+LIMIT_SAFETY = 0.89  # about -1 dBFS sample peak
+
+
+def music_filters(music, total):
+    """Filter graph for [0:a] shot audio (narration / kept sound) + [1:a] music or bed -> [mix].
+
+    highpass: 4th order (two 2-pole stages) at music.highpass Hz, default 150; 0/false disables.
+    duck:     sidechain compression of the music keyed by the shot audio, default on.
+    The sum goes through a sample-peak limiter (level=0: no auto make-up gain) before loudness normalisation.
+    """
+    volume = float(music.get("volume", MUSIC_DEFAULTS["volume"]))
+    original_volume = float(music.get("original_volume", MUSIC_DEFAULTS["original_volume"]))
+    fade_in = float(music.get("fade_in", MUSIC_DEFAULTS["fade_in"]))
+    fade_out = float(music.get("fade_out", MUSIC_DEFAULTS["fade_out"]))
+    highpass = music.get("highpass", MUSIC_DEFAULTS["highpass"])
+    duck = music.get("duck", True)
+    chain = "[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo"
+    if highpass not in (None, False, 0):
+        chain += f",highpass=f={float(highpass):g}:poles=2,highpass=f={float(highpass):g}:poles=2"
+    chain += f",volume={volume},atrim=0:{total}"
+    if fade_in > 0:
+        chain += f",afade=t=in:st=0:d={fade_in}"
+    if fade_out > 0:
+        chain += f",afade=t=out:st={max(0, total-fade_out):.3f}:d={fade_out}"
+    graph = []
+    if duck is not False:
+        d = dict(MUSIC_DEFAULTS["duck"])
+        if isinstance(duck, dict):
+            d.update(duck)
+        graph += [f"[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume={original_volume},asplit=2[a0][key]",
+                  chain + "[bed]",
+                  f"[bed][key]sidechaincompress=threshold={d['threshold']}:ratio={d['ratio']}:attack={d['attack']}:release={d['release']}[a1]"]
+    else:
+        graph += [f"[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume={original_volume}[a0]", chain + "[a1]"]
+    graph.append(f"[a0][a1]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit={LIMIT_SAFETY}:level=0:latency=1[mix]")
+    return graph
+
+
+def measure_loudness(path):
+    """First loudnorm pass: returns the measured_* dict printed by ffmpeg."""
+    result = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-af",
+                             "loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json", "-f", "null", "-"],
+                            capture_output=True, text=True, check=True)
+    text = result.stderr
+    return json.loads(text[text.rindex("{"): text.rindex("}") + 1])
+
+
+def loudnorm_linear(path, temp, lufs=-16.0, tp=-1.5, lra=11):
+    """Two-pass loudnorm in linear mode (one static gain, no gain riding in quiet passages).
+
+    If the static gain would push peaks over the true-peak target, the file is first peak-limited at
+    (tp - gain - 1 dB) and re-measured, so the second pass can stay linear instead of falling back to dynamic.
+    Returns the second-pass filter string for `path` (which may be replaced by the limited copy).
+    """
+    m = measure_loudness(path)
+    gain = float(lufs) - float(m["input_i"])
+    if float(m["input_tp"]) + gain > float(tp) - 0.3:
+        limit = min(1.0, max(0.0625, 10 ** ((float(tp) - gain - 1.0) / 20)))
+        limited = Path(temp) / "mix_limited.wav"
+        run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(path), "-af", f"alimiter=limit={limit:.4f}:level=0:latency=1:release=80",
+             "-c:a", "pcm_f32le", str(limited)])
+        shutil.move(str(limited), str(path))
+        m = measure_loudness(path)
+    return (f"loudnorm=I={lufs}:TP={tp}:LRA={lra}:measured_I={m['input_i']}:measured_TP={m['input_tp']}:"
+            f"measured_LRA={m['input_lra']}:measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true")
+
+
+def make_bed(path, duration, seed=7, level=-30.0, highpass=150, lowpass=3500):
+    """Synthetic ambience bed with no static tones: pink noise split into three bands whose levels drift on
+    slow, unrelated LFOs (7 s / 11 s / 13 s), high-passed at `highpass` Hz, normalised to `level` dBFS RMS.
+    Use it only when there is no licensed music; it is a quiet texture, not music.
+    """
+    path = Path(path).resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    d = float(duration)
+    if not 1 <= d <= 3600:
+        raise ValueError(f"bed duration must be 1..3600 s, got {d}")
+    bands = [(320, 1.0, 7.0, 0.0, 0.55), (750, 1.2, 11.0, 2.1, 0.45), (1600, 1.4, 13.0, 4.2, 0.30)]
+    graph = [f"anoisesrc=d={d:.3f}:c=pink:r=48000:a=0.8:s={int(seed)},asplit={len(bands)}" + "".join(f"[n{i}]" for i in range(len(bands)))]
+    for i, (f, q, period, phase, amp) in enumerate(bands):
+        graph.append(f"[n{i}]bandpass=f={f}:width_type=q:w={q},"
+                     f"volume='{amp}*(0.55+0.45*sin(2*PI*t/{period}+{phase}))':eval=frame[b{i}]")
+    fade = min(1.5, d / 4)
+    graph.append("".join(f"[b{i}]" for i in range(len(bands))) + f"amix=inputs={len(bands)}:normalize=0,"
+                 f"highpass=f={highpass}:poles=2,highpass=f={highpass}:poles=2,lowpass=f={lowpass},"
+                 f"afade=t=in:d={fade:.2f},afade=t=out:st={d-fade:.3f}:d={fade:.2f},aformat=channel_layouts=stereo[out]")
+    raw = path.with_name(path.stem + ".raw.wav")
+    run(["ffmpeg", "-y", "-loglevel", "error", "-filter_complex", ";".join(graph), "-map", "[out]", "-ar", "48000", str(raw)])
+    stats = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(raw), "-af", "volumedetect", "-f", "null", "-"],
+                           capture_output=True, text=True).stderr
+    mean = float(stats.split("mean_volume:")[1].split("dB")[0])
+    run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(raw), "-af", f"volume={float(level) - mean:.2f}dB", "-ar", "48000", str(path)])
+    raw.unlink(missing_ok=True)
+    print(path)
+    return path
+
+
 def build_project(project, output=None):
     report = validate_project(project)
     if report["errors"]:
         raise ValueError("\n".join(report["errors"]))
+    for warning in report.get("warnings", []):
+        print(f"hyperlens: warning: {warning}", file=sys.stderr, flush=True)
     base = project["_base"]
     output = Path(output).resolve() if output else resolve(base, project["output"]["path"])
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -578,21 +695,22 @@ def build_project(project, output=None):
             filters.append(f"subtitles=filename='{escape_filter_path(ass)}':fontsdir='{escape_filter_path(fontsdir)}'")
         total = report["duration"]
         if music:
-            music_volume = float(music.get("volume", 0.25))
-            original_volume = float(music.get("original_volume", 1.0))
-            fade_out = float(music.get("fade_out", 1.0))
-            music_chain = f"[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume={music_volume},atrim=0:{total}"
-            if fade_out > 0:
-                music_chain += f",afade=t=out:st={max(0, total-fade_out):.3f}:d={fade_out}"
-            audio_filters += [f"[0:a]volume={original_volume}[a0]", music_chain + "[a1]",
-                              "[a0][a1]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mix]"]
-            audio_label = "mix"
+            # Music/bed path: high-pass, duck under the shot audio (narration), limiter, two-pass linear loudnorm.
+            mix_wav = temp / "mix.wav"
+            run(command + ["-filter_complex", ";".join(music_filters(music, total)), "-map", "[mix]",
+                           "-t", f"{total:.3f}", "-c:a", "pcm_f32le", "-ar", "48000", "-ac", "2", str(mix_wav)])
+            command = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(joined), "-i", str(mix_wav)]
+            if project["audio"].get("loudnorm", True):
+                target = project["audio"]
+                audio_filters.append(f"[1:a]{loudnorm_linear(mix_wav, temp, target.get('lufs', -16), target.get('tp', -1.5))}[a]")
+            else:
+                audio_filters.append("[1:a]acopy[a]")
         else:
-            audio_label = "0:a"
-        if project["audio"].get("loudnorm", True):
-            audio_filters.append(f"[{audio_label}]loudnorm=I=-16:TP=-1.5:LRA=11[a]")
-        else:
-            audio_filters.append(f"[{audio_label}]acopy[a]")
+            # No music: unchanged behaviour (single-pass loudnorm on the shot audio).
+            if project["audio"].get("loudnorm", True):
+                audio_filters.append("[0:a]loudnorm=I=-16:TP=-1.5:LRA=11[a]")
+            else:
+                audio_filters.append("[0:a]acopy[a]")
         filter_complex = []
         if filters:
             filter_complex.append(f"[0:v]{','.join(filters)}[v]")
@@ -671,6 +789,12 @@ def main():
     init.add_argument("manifest", type=Path)
     init.add_argument("--title", default="未命名视频")
     init.add_argument("--aspect", choices=sorted(ASPECT_PRESETS), default="16:9")
+    bed = sub.add_parser("bed", help="generate a quiet ambience bed with no static tones (only when there is no licensed music)")
+    bed.add_argument("output", type=Path)
+    bed.add_argument("--duration", type=float, required=True)
+    bed.add_argument("--seed", type=int, default=7)
+    bed.add_argument("--level", type=float, default=-30.0, help="RMS level in dBFS (default -30)")
+    bed.add_argument("--highpass", type=float, default=150)
     for name in ("check", "subtitles", "build"):
         cmd = sub.add_parser(name)
         cmd.add_argument("manifest", type=Path)
@@ -685,6 +809,9 @@ def main():
     args = parser.parse_args()
     if args.command == "doctor":
         return doctor()
+    if args.command == "bed":
+        make_bed(args.output, args.duration, args.seed, args.level, args.highpass)
+        return 0
     if args.command == "init":
         init_project(args.manifest, args.title, args.aspect)
         return 0

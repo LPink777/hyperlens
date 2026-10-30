@@ -13,9 +13,10 @@
 | `output.path` | string | 默认 `output/final.mp4`；命令行可覆盖 |
 | `output.variants` | object | 可选，多画幅：键是画幅名（预设名或自定义名），值可含 `aspect` / `width` / `height` / `fps` / `path` / `subtitles`。`build --aspect <键>` 出这个画幅，`build --all` 出主画幅 + 全部变体。变体不继承主画幅的字幕字号和边距（`font_size`、`margin_v`、`margin_h`、`outline`），要么在变体里写，要么用该画幅的默认值 |
 | `shots` | array | 非空镜头数组 |
-| `music` | object | 可选背景音乐 |
+| `music` | object | 可选背景音乐/铺底，字段见「音乐与字幕」 |
 | `subtitles` | object | 字幕设置 |
-| `audio.loudnorm` | boolean | 默认 true，目标约 -16 LUFS、TP -1.5 dB |
+| `audio.loudnorm` | boolean | 默认 true，目标约 -16 LUFS、TP -1.5 dB。有 `music` 时走两遍线性 loudnorm（先测量、再 `linear=true`），没有 `music` 时沿用单遍，输出与旧版一致 |
+| `audio.lufs / tp` | number | 可选，两遍 loudnorm 的目标，默认 -16 / -1.5 |
 | `story` | object | 可选；故事层配置，合成器忽略。`genre`、`duration`，可选 `reveal`、`ai_image`、`ai_video`、`silent`、`has_facts`、`has_protagonist`；`plan` 由 `story_lint.py --plan` 写回（步骤、文件、确认点、lint 开关、验收权重），不手写。见 `story_pipeline.md` |
 
 ## 视频镜头
@@ -89,11 +90,17 @@
 ## 音乐与字幕
 
 ```json
-"music": {"source": "audio/music.wav", "volume": 0.22, "original_volume": 0.9},
+"music": {"source": "audio/bed.wav", "volume": 0.25, "original_volume": 1.0, "fade_in": 0, "fade_out": 1,
+          "highpass": 150, "duck": {"threshold": 0.02, "ratio": 6, "attack": 20, "release": 400}},
 "subtitles": {"burn_in": true, "font_size": 38, "margin_h": 36, "margin_v": 180, "box": false}
 ```
 
-- `volume` 是音乐音量（可大于 1），`original_volume` 是镜头声音总音量，`fade_out` 为结尾淡出秒数（默认 1）。音乐自动循环并裁到成片长度。
+- `volume` 是音乐增益（线性，默认 0.25）。**不要大于 1**：铺底要比旁白低 15–20 dB，`check` 对 >1 给 warning；铺底太轻就换素材或重新生成，不要放大。
+- `original_volume` 是镜头声音（旁白/原声）总音量（默认 1）；`fade_in` / `fade_out` 为开头/结尾淡入淡出秒数（默认 0 / 1）。音乐自动循环并裁到成片长度。
+- `highpass`：音乐/铺底高通截止频率 Hz（默认 150，两级 12 dB/oct）；`false` 或 0 关闭。低于 120 Hz 或关闭时 `check` 给 warning（低频铺底是“嗡嗡声”的主要来源）。
+- `duck`：旁白侧链避让，默认开（`threshold` 0.02、`ratio` 6、`attack` 20 ms、`release` 400 ms，可只写要改的键）；`false` 关闭并给 warning。
+- 有 `music` 时的音频链：音乐 48k/立体声 → 高通 → 音量 → 淡入淡出 → 侧链避让 → 与镜头声 `amix normalize=0` → `alimiter`（-1 dBFS，level=0）→ 两遍线性 loudnorm（峰值会超 TP 时先限幅再测）。
+- 没有授权音乐时铺底用 `python3 scripts/video_pipeline.py bed audio/bed.wav --duration <秒> [--seed N --level -30 --highpass 150]` 生成：带通粉噪 + 慢速起伏，无稳态单音，RMS 约 -30 dBFS，配默认 `volume` 0.25 即可。不要用 `sine`/`aevalsrc` 和弦做铺底。
 - 字幕字号和边距单位均为输出像素；默认字号：竖屏约短边 5%、横屏约 4.5%；默认 `margin_v`：竖屏高度 14%、横屏 7%（避开平台底部 UI）。`box: true` 改为半透明底框。
 - 字幕自动中文断行：不拆英文单词/命令，优先在标点处断行，避免单字孤行。
 - `burn_in=true` 时烧录字幕；无论是否烧录，有字幕内容都会同时输出同名 `.srt`。

@@ -72,7 +72,7 @@ python3 -m venv ~/.venvs/video-studio
 | 交付物 | MP4 成片 | MP4 + SRT 字幕 | MP4 + SRT + 封面图 | 全套（含 project.json、分镜表、素材清单） |
 | 旁白/配音 | 无旁白，靠字幕 | 用户自己录音 | 合成配音（需确认可用工具） | — |
 | 字幕 | 烧录中文字幕 | 外挂 SRT | 中英双语 | 无字幕 |
-| 背景音乐 | 无音乐 | 生成的简单音调铺底 | 用户提供已授权音乐 | — |
+| 背景音乐 | 无音乐 | 轻氛围铺底（无静态音、已切低频，`video_pipeline.py bed` 生成） | 用户提供已授权音乐 | — |
 
 画幅题按需加一个选项或附加项 **“多画幅（16:9 + 9:16）”**：同一套素材、时间轴和剧本，每个画幅单独排版、单独出看板（规则见第 4 步“多画幅”）；选了它，参数题要按每个画幅分别给分辨率。
 
@@ -194,7 +194,7 @@ python3 scripts/html_render.py html/s01.html --out shots/s01.mp4 --size 720x1280
   5. **关键镜头保护**：镜头表“关键=是”的镜头，重做时不能直接“改拍背影/剪影”“改拍结果而非过程”“去掉动作”；先试锁关键帧再图生视频、首尾帧都锁、换景别、换后端（HTML、实拍素材）。确实要改动作：先改 `script.md` 对应拍，对钩子、因果链、结尾和复述做 2.9 局部复审，过了再生产；审阅者判定故事意思变了，在确认⑤的试拍汇报里告诉用户，不另增确认点。
   6. 在 `shots/QC.md`（模板 `assets/QC.template.md`）记录版本、关键、得分、缺陷、动作改动、故事复核（STORY_QC 版本号）、可用区间和处理方式；`story_lint.py` 会核对关键镜头的复核记录。
 - **音频素材级验收（必做）**：每段音频生成或合成后马上全程检查，不等到成片：每条旁白、每段环境音/音效、每段音乐、要保留的镜头原声、每个中间混音轨。详见 `references/audio_qc.md`。
-  1. `python3 scripts/audio_qc.py <音频或视频> --kind vo|ambient|music|mix`（可批量）。脚本逐窗扫描并标出底噪、嘶嘶声、噼啪/静电/爆音、click、削波、响度突跳的时间点，生成频谱图；有问题 exit 1。
+  1. `python3 scripts/audio_qc.py <音频或视频> --kind vo|ambient|music|mix`（可批量）。脚本逐窗扫描并标出底噪、嘶嘶声、噼啪/静电/爆音、click、削波、响度突跳的时间点，并查持续低频单音（嗡声），生成频谱图；有问题 exit 1。铺底/音乐素材报“嗡声”就换素材，不要靠混音压。
   2. 被标出的时间点逐个抽听并看局部频谱图；是瑕疵就只重做这段素材，过了再进混音；是故意的声音就在 QC 记录里写明。
   3. AI 视频镜头的原声默认静音，确要用时先单独导出音轨走这一步。
 - **多画幅（选了“多画幅”时）**：同一套素材、时间轴和剧本，每个画幅在源码或工程里**单独排版**，不准把横屏成片硬裁成竖屏。
@@ -202,7 +202,7 @@ python3 scripts/html_render.py html/s01.html --out shots/s01.mp4 --size 720x1280
   - AI 视频镜头要么按各画幅分别生成，要么生成时就留出安全构图（主体居中、上下左右留余量）；不得不裁时逐镜设置 `crop_focus`，并必须过该画幅的看板。
   - `project.json` 用 `output.variants` 和逐镜 `variants` 覆盖（字段见 `references/manifest_schema.md`）；`check --aspect` 会对没有本画幅版式、比例又不符的镜头给 warning。每个画幅单独出看板、单独确认（⑥）。
 - **图形卡片**：按输出分辨率画，**底部约 25% 留空给字幕**，四周留 ≥ 6% 安全边距；竖屏避开平台右侧按钮和底部文案区。
-- 音乐、人物照片、商标、已有视频必须确认使用权；没有授权音乐时用无音乐或 ffmpeg 生成的简单音调铺底。
+- 音乐、人物照片、商标、已有视频必须确认使用权。没有授权音乐时默认**无音乐**；确实要铺底，只用 `python3 scripts/video_pipeline.py bed audio/bed.wav --duration <秒>` 生成（带通粉噪 + 慢速起伏，无稳态音、150 Hz 以下已切）。**禁止**用 `sine`/`aevalsrc` 叠和弦或单音做持续铺底：稳态低频正弦在旁白停顿处就是“嗡嗡声”（见 `references/audio_qc.md` 案例）。任何铺底都要高通 ≥120 Hz、比旁白低 ≥20 dB。
 
 ## 5. 建立清单并合成
 
@@ -232,7 +232,7 @@ python3 scripts/storyboard_board.py --project <project>/project.json --preview [
 - 图片默认 `fit: cover`，可设 `contain`；`motion: zoom_in / zoom_out` 做缓慢推拉。
 - 字段见 `references/manifest_schema.md`，命令见 `references/api_reference.md`，模板 `assets/project.template.json`。
 
-**混音规范**（自写混音脚本时同样适用，细节见 `references/audio_qc.md`）：所有轨先统一 48 kHz 和声道布局；各轨先调增益留 headroom（铺底比旁白低 15–20 dB），`amix` 用 `normalize=0`，后接 `alimiter` 兜底；响度用 loudnorm 两遍法（第二遍带测量值、`linear=true`），不用单遍动态模式；旁白每段首尾 10–30 ms 淡入淡出；环境音循环或拼接用 `acrossfade`，段间电平用包络过渡，不用阶跃开关；合成噪声类音效（火、雨等）不要用 `gt(random(1),…)` 这类硬开关随机门，每个脉冲要有起落包络。
+**混音规范**（自写混音脚本时同样适用，细节见 `references/audio_qc.md`）：所有轨先统一 48 kHz 和声道布局；各轨先调增益留 headroom（铺底比旁白低 15–20 dB，停顿处也要低 ≥15 dB；`music.volume` 不要 >1），铺底/音乐先高通 ≥120 Hz（`video_pipeline.py` 默认 150 Hz），有旁白时对铺底做侧链压缩避让（默认开），`amix` 用 `normalize=0`，后接 `alimiter` 兜底；响度用 loudnorm 两遍法（第二遍带测量值、`linear=true`），不用单遍动态模式；旁白每段首尾 10–30 ms 淡入淡出；环境音循环或拼接用 `acrossfade`，段间电平用包络过渡，不用阶跃开关；合成噪声类音效（火、雨等）不要用 `gt(random(1),…)` 这类硬开关随机门，每个脉冲要有起落包络。
 
 **成片音频验收（必做）**：每次导出成片后马上跑，和素材级验收一样必做、不能互相替代：
 
@@ -240,7 +240,7 @@ python3 scripts/storyboard_board.py --project <project>/project.json --preview [
 python3 scripts/audio_qc.py output/final.mp4 --kind mix --lufs -16 --tp -1 --out output/qc
 ```
 
-要求削波样本数 0、真峰值 ≤ −1 dBTP、积分响度在目标 ±1 LU 内、没有噼啪/嘶嘶/底噪/突跳标记。被标出的时间点要抽听，回到素材级找出是哪条轨或哪一步混音造成的，修源头后重建再查。
+要求削波样本数 0、真峰值 ≤ −1 dBTP、积分响度在目标 ±1 LU 内、没有噼啪/嘶嘶/底噪/突跳标记，也没有**嗡声**（持续低频单音）、**停顿处铺底过响**、**停顿处低频偏高**这三类 P0（有旁白分轨时加 `--vo <旁白.wav>` 定位停顿最准）。被标出的时间点要抽听，回到素材级找出是哪条轨或哪一步混音造成的，修源头后重建再查。只剩成片、没有分轨时，可用 `python3 scripts/audio_qc.py output/final.mp4 --fix-hum output/final_dehum.mp4`（先加 `--dry-run` 看滤镜链）做陷波补救；嗡声本身就是主要内容时补救无效，必须换铺底重建。
 
 ## 6. 审片、质检与迭代
 
@@ -272,13 +272,13 @@ python3 scripts/audio_qc.py <project>/output/final.mp4 --kind mix --out <project
 
 ## 资源
 
-- `scripts/video_pipeline.py`：环境自检、项目初始化（建目录 + `PROGRESS.md`）、检查、字幕、顺序合成（自动选编码器与中文字体）；多画幅 `--aspect` / `--all`（`output.variants`、逐镜 `variants`、`crop_focus`），低清预览 `--preview`。
+- `scripts/video_pipeline.py`：环境自检、项目初始化（建目录 + `PROGRESS.md`）、检查、字幕、顺序合成（自动选编码器与中文字体；有音乐时铺底高通 + 侧链避让 + `alimiter` + loudnorm 两遍线性）；`bed` 生成无稳态音的轻氛围铺底；多画幅 `--aspect` / `--all`（`output.variants`、逐镜 `variants`、`crop_focus`），低清预览 `--preview`。
 - `scripts/validate_video.py`：技术检查（编码、尺寸、竖屏、帧率、时长、音轨、fast-start、完整解码）。
 - `scripts/html_render.py`：HTML 合成 → MP4 确定性逐帧渲染（并行、快门运动模糊、静帧、确定性自检、混音）。
 - `scripts/story_lint.py`：故事层规划（`--plan` 按时长档 + 题材算步骤、文件、确认点、lint 开关、验收权重，写回 `story.plan`）与检查（节拍覆盖、阅读速度、旁白占比、因果连接、年表味、步骤完整、未实测、卖点依据、事实来源、张力、贯穿物、声音转折、主角一致、品牌资产、段落对齐、关键镜头保护、结构模板）；只用标准库，jieba 可选。
 - `scripts/storyboard_lint.py`：镜头表画面规则红黄绿检查（认识 2.8 新列）。
 - `scripts/shot_qc.py`：逐镜技术自检（尺寸/帧率/时长/黑帧/冻结）、抽帧拼图、生成审片提示；`--key` 附关键镜头保护提示。
-- `scripts/audio_qc.py`：通用音频验收（单个素材或成片都能用）：LUFS、真峰值、削波计数，逐窗标出底噪/嘶嘶/噼啪静电/click/突跳的时间点，出频谱图，有问题 exit 1。
+- `scripts/audio_qc.py`：通用音频验收（单个素材或成片都能用）：LUFS、真峰值、削波计数，逐窗标出底噪/嘶嘶/噼啪静电/click/突跳的时间点，嗡声（持续低频单音）与停顿处铺底/低频检查，出频谱图，有问题 exit 1；`--fix-hum` 对只有成片的情况做陷波补救。
 - `scripts/case_search.py`：公开案例库只读检索（返回原帖链接）。
 - `scripts/ref_analyze.py`：参考片/参考图拆解：镜头切分与平均镜头长度、代表帧拆解拼图、k-means 主色板 HEX + 色板图、明度/饱和度、`风格说明` 草稿（字体与动作手感留待填）。
 - `scripts/beat_map.py`：音乐卡拍：`analyze` 量 BPM、拍点、小节首拍、能量段落 → `beats.json`（numpy，librosa 可选）；`snap` 把镜头切点对齐到最近拍点并报告偏差和建议时长。
@@ -303,6 +303,6 @@ python3 scripts/audio_qc.py <project>/output/final.mp4 --kind mix --out <project
 - `references/prompt_playbook.md`：单镜头提示词方法。
 - `references/manifest_schema.md` / `references/api_reference.md`：清单字段与命令。
 - `references/shot_qc.md`：逐镜验收：试拍、缺陷清单（P0/P1）、通过/剪用/重做判定与重做策略、关键镜头保护、QC.md 列。
-- `references/audio_qc.md`：音频两级验收（素材级 + 成片级）、判定标准、混音规范（48k、headroom、alimiter、loudnorm 两遍法、淡入淡出、acrossfade、不用硬开关随机门）、音画同步检查和示例案例。
+- `references/audio_qc.md`：音频两级验收（素材级 + 成片级）、判定标准、混音规范（48k、headroom、铺底高通 ≥120 Hz、侧链避让、alimiter、loudnorm 两遍法、淡入淡出、acrossfade、不用硬开关随机门、不用静态正弦铺底）、嗡声/停顿检查、音画同步检查和示例案例（含“嗡嗡铺底”案例）。
 - `references/quality_control.md`：全片缩略图看板（5 个问题、只修最严重 3 处）、画面、声音（含音画同步）、内容（引用故事验收结果）和技术质检。
 - `references/sources.md`：方法来源与许可（对外分发时保留）。
