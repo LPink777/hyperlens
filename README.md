@@ -6,13 +6,13 @@ AI 视频、AI 图片、已有素材、图形卡片、HTML 动态合成和三维
 
 ## 工作流
 
-`需求确认（选择卡） → 一件事与三个方案 → SPEC 与画风锁 → 镜头表（含物/动作/镜头/承接）→ lint → 后端路由 → 静帧/首帧确认 → 试拍 1–2 镜 → 镜头生产 → 逐镜验收 → 音频素材级验收 → project.json 检查 → 合成（字幕与声音）→ 成片音频验收 → 审片 + 技术质检 → 按镜头迭代`
+`需求确认（选择卡） → 故事层（事实、方案、剧本、分镜、故事验收）→ 后端路由 → 静帧/首帧确认 → 试拍 1–2 镜 → 镜头生产 → 逐镜验收 → 音频素材级验收 → project.json 检查 → 合成（字幕与声音）→ 成片音频验收 → 审片 + 技术质检 → 按镜头迭代`
 
 完整步骤、选择卡规则和命令见 [`hyperlens/SKILL.md`](hyperlens/SKILL.md)。
 
 ## 功能
 
-- **分镜与画风锁**：一件事、三个方案、SPEC（把形容词换成数字）、画风锁三行，以及带「物 / 动作 / 镜头 / 承接」的镜头表。`storyboard_lint.py` 做红黄绿检查。
+- **故事层与分镜**：按时长和题材走事实卡、方案、剧本、分镜和故事验收；SPEC 把形容词换成数字，画风锁三行，镜头表带「物 / 动作 / 镜头 / 承接」。`story_lint.py` 做故事检查，`storyboard_lint.py` 做画面红黄绿检查。
 - **后端路由**：已有素材、标题卡、AI 图生/文生视频、HTML 动态合成、一镜到底、Remotion、HyperFrames、三维渲染，按镜头选择，而不是整片绑死一种工具。
 - **HTML 动态合成**：页面遵守「画面只由时间 t 决定」的契约，用 Playwright 逐帧渲染成 MP4（可并行、运动模糊、静帧、确定性自检）。
 - **顺序合成**：`video_pipeline.py` 把 `video` / `image` / `title` 镜头统一画幅和帧率，烧录中文字幕、混音，输出 `output/final.mp4` 和 `final.srt`。
@@ -97,7 +97,7 @@ git clone https://github.com/LPink777/hyperlens && mkdir -p ~/.agents/skills && 
 ### 接下来智能体会做什么
 
 1. **先发一张选择卡**，一次问完。前 5 题固定为时长、画幅、风格、参数（分辨率/帧率）、交付物，整张卡最多 8 题。回复「按推荐」或「你定」，它会采用每题的推荐项，并复述最终选择。
-2. **再出方案和镜头表**，发给你看过再开做（尤其是要用 AI 生成的时候）。
+2. **再写故事和镜头表**，故事验收通过后把剧本和分镜一起给你看，然后才开做（尤其是要用 AI 生成的时候）。确认几次由时长、以及用不用 AI 图或视频决定。
 3. **按镜头生产并质检**：逐镜验收、音频素材级验收、合成，然后做成片音频验收、审片和技术质检。
 4. **交付实际生成的文件**：成片 `output/final.mp4`，以及按选择卡附上的 SRT（合成输出为 `final.srt`）。选择卡里要了封面、`project.json` 或镜头表时，一并列出这些已经存在的路径。
 
@@ -125,6 +125,7 @@ python3 scripts/video_pipeline.py build <project>/project.json
 ├── LICENSE          # MIT，Copyright (c) 2026 LPink777
 ├── README.md
 ├── .gitignore
+├── examples/        # 故事层试跑（剧本和分镜，不成片）；复制技能时不要带上
 └── hyperlens/       # 技能本体，可整目录放进智能体 skills 目录
     ├── SKILL.md     # 工作流说明（智能体入口）
     ├── assets/      # project.json、镜头表、HTML 合成模板
@@ -138,7 +139,7 @@ Hyperlens is a topic-agnostic video planning and production skill for AI agents.
 
 Workflow:
 
-`需求确认（选择卡） → 一件事与三个方案 → SPEC 与画风锁 → 镜头表（含物/动作/镜头/承接）→ lint → 后端路由 → 静帧/首帧确认 → 试拍 1–2 镜 → 镜头生产 → 逐镜验收 → 音频素材级验收 → project.json 检查 → 合成（字幕与声音）→ 成片音频验收 → 审片 + 技术质检 → 按镜头迭代`
+`需求确认（选择卡） → 故事层（事实、方案、剧本、分镜、故事验收）→ 后端路由 → 静帧/首帧确认 → 试拍 1–2 镜 → 镜头生产 → 逐镜验收 → 音频素材级验收 → project.json 检查 → 合成（字幕与声音）→ 成片音频验收 → 审片 + 技术质检 → 按镜头迭代`
 
 Requires Python 3, ffmpeg/ffprobe, and a CJK font (`fonts-noto-cjk`, or `VIDEO_STUDIO_FONT_REGULAR` / `VIDEO_STUDIO_FONT_BOLD`). HTML rendering optionally uses a Playwright venv at `~/.venvs/video-studio` (override with `VIDEO_STUDIO_PYTHON`). The agent needs a shell with `python3` and `ffmpeg`; on a new machine run `python3 scripts/video_pipeline.py doctor` first.
 
@@ -161,7 +162,7 @@ Cursor also reads `.claude/skills/`, `.codex/skills/`, `~/.claude/skills/`, and 
 
 The agent loads the skill when the request matches its description (做个视频, 生成视频, 分镜到成片, 竖屏短视频, and the other phrases in `SKILL.md`). You can also name it: Claude Code `/hyperlens` (the `/` menu may show `Hyperlens`, the frontmatter name), Cursor `/` then search for the skill, Codex `$hyperlens` or `/skills`, or say “用 hyperlens skill 做一个…”.
 
-Example: “把这篇稿子做成 30 秒竖屏短视频”. The agent sends a selection card first (时长 / 画幅 / 风格 / 参数 / 交付物). Reply “按推荐” to take the defaults. It then shows a storyboard, produces the shots, runs QC, and delivers `output/final.mp4` plus the SRT. AI video or image generation spends that agent's generation quota when those tools exist; otherwise shots use information cards or the HTML renderer.
+Example: “把这篇稿子做成 30 秒竖屏短视频”. The agent sends a selection card first (时长 / 画幅 / 风格 / 参数 / 交付物). Reply “按推荐” to take the defaults. It then writes the story and storyboard, runs story QC, produces the shots, runs technical QC, and delivers `output/final.mp4` plus the SRT. AI video or image generation spends that agent's generation quota when those tools exist; otherwise shots use information cards or the HTML renderer.
 
 Manual CLI, from the `hyperlens/` directory: `doctor`, then `init`, `check`, and `build` (see 手动使用脚本 above).
 

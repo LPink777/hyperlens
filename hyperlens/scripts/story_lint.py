@@ -29,6 +29,17 @@ NARRATION_DEFAULT = 0.80
 CAUSAL_EMPTY_MAX = 0.50
 CHRONO_MAX = 0.30
 ALIGN_TOL = 0.5
+# 事实/卖点句。一个/一次/第一步/最多/最后不当数字或极限词；阿拉伯数字、两位及以上的量、年/倍/时长、比较级仍算。
+CLAIM = re.compile(
+    r"\d"
+    r"|[一二三四五六七八九十百千万亿两]+\s*(?:万|千|百|亿)"
+    r"|[一二三四五六七八九十百千万亿两]+\s*(?:年|倍|％|%|秒|分钟|小时)"
+    r"|[二三四五六七八九十百千万亿两]+\s*(?:次|步|种|个)"
+    r"|最(?!多|后|近|初|终)"
+    r"|第一(?!步|个|句|拍|题|次|幕|镜|行|格|声|场|集)"
+    r"|唯一|首个|首次|更快|更省|更少|提升|减少|降低|节省"
+    r"|比.{0,6}(?:快|多|少)"
+)
 ACT_MIN, ACT_MAX = 30, 45
 TIERS = [(0, 15, "<15"), (15, 45, "15-<45"), (45, 90, "45-<90"), (90, 10 ** 9, ">=90")]
 
@@ -141,11 +152,25 @@ def hcol(hdr, *names):
     return None
 
 
+def _matches(hdr, must, any_of):
+    return all(hcol(hdr, m) for m in must) and (not any_of or any(hcol(hdr, a) for a in any_of))
+
+
 def find_table(text, must, any_of=()):
     for hdr, rows, ln in tables(text):
-        if all(hcol(hdr, m) for m in must) and (not any_of or any(hcol(hdr, a) for a in any_of)):
+        if _matches(hdr, must, any_of):
             return hdr, rows, ln
     return None
+
+
+def concat_tables(text, must, any_of=()):
+    """同一文件里用标题拆开的多张表拼在一起。分幕大纲若拆成两张表，第二张也要算。"""
+    found = [(hdr, rows, ln) for hdr, rows, ln in tables(text) if _matches(hdr, must, any_of)]
+    if not found:
+        return None
+    hdr, _, ln = found[0]
+    rows = [r for _, rs, _ in found for r in rs]
+    return hdr, rows, ln
 
 
 def num(s):
@@ -364,13 +389,13 @@ def lint(base, plan, story):
     # ---- 节拍表与剧本
     beat_src = None
     for k in ("outline", "script", "story"):
-        t = find_table(txt(k), ["拍"], ["功能", "连接词", "张力", "发生了什么"])
+        t = concat_tables(txt(k), ["拍"], ["功能", "连接词", "张力", "发生了什么"])
         if t:
             beat_src = (k, t)
             break
     script_t = None
     for k in ("script", "story"):
-        t = find_table(txt(k), ["拍"], ["画面", "旁白", "操作", "意象"])
+        t = concat_tables(txt(k), ["拍"], ["画面", "旁白", "操作", "意象"])
         if t:
             script_t = (k, t)
             break
@@ -485,16 +510,29 @@ def lint(base, plan, story):
     if sw["步骤完整"] and script_t:
         hdr, rows, _ = script_t[1]
         oc, rc = hcol(hdr, "操作"), hcol(hdr, "屏幕结果", "屏幕上的结果")
-        if not oc or not rc:
-            (o.red if g == "tutorial" else o.yellow)("步骤完整", "剧本缺“操作”或“屏幕结果”列")
-        else:
-            for r in rows:
-                if not is_empty(r.get(oc)) and is_empty(r.get(rc)):
-                    o.red("步骤完整", f"拍「{r[hcol(hdr, '拍')]}」有操作没有屏幕结果")
-            if g == "tutorial":
-                wc = hcol(hdr, "为什么")
-                if not wc:
+        bc = hcol(hdr, "拍")
+        if g == "tutorial":
+            if not oc or not rc:
+                o.red("步骤完整", "剧本缺“操作”或“屏幕结果”列")
+            else:
+                for r in rows:
+                    if not is_empty(r.get(oc)) and is_empty(r.get(rc)):
+                        o.red("步骤完整", f"拍「{r.get(bc)}」有操作没有屏幕结果")
+                if not hcol(hdr, "为什么"):
                     o.yellow("步骤完整", "教程剧本缺“为什么”列")
+        else:
+            # 功能演示里只有介入/操作拍才需要这两列，避免品牌片叙事结构整表黄灯
+            fc = hcol(hdr, "功能")
+            step_rows = [r for r in rows if fc and re.search(r"介入|操作|演示|步骤", r.get(fc, ""))]
+            if step_rows and (not oc or not rc):
+                o.yellow("步骤完整", "有介入/操作/演示/步骤拍，但剧本缺“操作”或“屏幕结果”列")
+            elif oc and rc:
+                for r in rows:
+                    is_step = r in step_rows
+                    if is_step and (is_empty(r.get(oc)) or is_empty(r.get(rc))):
+                        o.red("步骤完整", f"拍「{r.get(bc)}」是操作拍，缺操作或屏幕结果")
+                    elif (not is_step) and (not is_empty(r.get(oc))) and is_empty(r.get(rc)):
+                        o.red("步骤完整", f"拍「{r.get(bc)}」有操作没有屏幕结果")
     if sw["未实测"]:
         n = len(re.findall(r"\[未实测\]", whole))
         if n:
@@ -511,7 +549,6 @@ def lint(base, plan, story):
                 if m:
                     defined.add(m.group(1))
     defined = defined or fact_ids
-    claim = re.compile(r"\d|[一二三四五六七八九十百千万亿两]+(?:万|千|百|亿)?\s*(?:年|倍|%|％|秒|分钟|小时|次|步|种|个)|最|第一|唯一|首个|首次|更快|更省|更少|提升|减少|降低|节省|比.{0,6}(?:快|多|少)")
     if (sw["事实来源"] or sw["卖点依据"]) and script_t:
         hdr, rows, _ = script_t[1]
         cols = [c for c in (hcol(hdr, "旁白", "台词"), hcol(hdr, "屏上字")) if c]
@@ -522,7 +559,7 @@ def lint(base, plan, story):
                     body = TAG.sub("", s)
                     if "[示意]" in s:
                         continue
-                    if claim.search(body) and not re.search(r"\[F\d+", s):
+                    if CLAIM.search(body) and not re.search(r"\[F\d+", s):
                         o.red(kind, f"拍「{r[hcol(hdr, '拍')]}」{c}「{body.strip()[:24]}」像事实/卖点句，缺 [F#]")
         for ref in sorted(set(re.findall(r"\[(F\d+)", whole))):
             if ref not in defined:
@@ -663,16 +700,18 @@ def lint(base, plan, story):
                 (o.info if plan["tier"] == "<15" else o.yellow)("结构模板", f"功能列缺少 {GENRES[g][0]} 模板要求的环节：{'、'.join(miss)}")
 
     # ---- 信息密度
-    if sw["信息密度"] and beat_src:
+    if sw["信息密度"] and beat_src and plan["tier"] != "<15":
         hdr, rows, _ = beat_src[1]
         ic = hcol(hdr, "观众得到的信息", "信息点", "信息")
-        if ic:
+        if not ic:
+            o.yellow("信息密度", "节拍表没有“观众得到的信息”列（每拍 ≤1 个新信息；呼吸拍把这格留空）")
+        else:
             pts = [r for r in rows if not is_empty(r.get(ic))]
             cap = plan["constants"]["info_points_max"]
             if len(pts) > cap:
                 o.yellow("信息密度", f"信息点 {len(pts)} 个 > 上限 {cap}（时长 ÷ 10，最少 2）")
             breath = len(rows) - len(pts)
-            if plan["tier"] != "<15" and breath < 1:
+            if breath < 1:
                 o.yellow("信息密度", "没有呼吸拍（不给新信息的一拍）")
 
     # ---- 关键镜头保护

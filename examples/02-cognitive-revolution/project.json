@@ -1,0 +1,218 @@
+{
+  "project": "为什么后来只剩我们",
+  "output": {
+    "aspect": "16:9",
+    "width": 1920,
+    "height": 1080,
+    "fps": 24,
+    "path": "output/final.mp4"
+  },
+  "story": {
+    "genre": "科普",
+    "duration": 90,
+    "reveal": "悬念型",
+    "ai_image": true,
+    "ai_video": true,
+    "silent": false,
+    "has_facts": true,
+    "has_protagonist": true,
+    "plan": {
+      "genre": "science",
+      "genre_label": "科普/历史",
+      "duration": 90.0,
+      "tier": ">=90",
+      "reveal": "悬念型",
+      "plans": 3,
+      "acts": 2,
+      "steps": [
+        {
+          "step": "2.1",
+          "name": "素材与事实卡",
+          "mode": "做",
+          "file": "research/facts.md",
+          "note": "每条 F# / 内容 / 来源 / 可信度 / 用途；至少 3 条有张力的素材"
+        },
+        {
+          "step": "2.2",
+          "name": "观众问题与目标（BRIEF）",
+          "mode": "做",
+          "file": "BRIEF.md",
+          "note": "揭晓方式：悬念型"
+        },
+        {
+          "step": "2.3",
+          "name": "方案（比结构）",
+          "mode": "做",
+          "file": "STORYLINES.md",
+          "note": "出 3 个方案"
+        },
+        {
+          "step": "2.4",
+          "name": "主角",
+          "mode": "做",
+          "file": "world.md",
+          "note": "主角 1–2 个，通用角色卡"
+        },
+        {
+          "step": "2.5",
+          "name": "世界 + SPEC/画风锁",
+          "mode": "简写",
+          "file": "world.md",
+          "note": "可简写成场景 + 贯穿物；末尾派生 SPEC 与画风锁三行；确认②只发文字卡，不出图"
+        },
+        {
+          "step": "2.6",
+          "name": "节拍大纲",
+          "mode": "做",
+          "file": "outline.md",
+          "note": "连接词 / 张力 / 贯穿物状态 / 音乐段落 列必填"
+        },
+        {
+          "step": "2.7",
+          "name": "剧本",
+          "mode": "做",
+          "file": "script.md",
+          "note": "事实或卖点句后标 [F#]"
+        },
+        {
+          "step": "2.8",
+          "name": "切分镜（含预定后端）",
+          "mode": "做",
+          "file": "镜头表.md",
+          "note": "新列：拍/关键/角色/场景或界面状态/道具或元素/景别/预定后端/剧本行号/首帧编号"
+        },
+        {
+          "step": "2.9",
+          "name": "故事验收",
+          "mode": "分幕 + 整片",
+          "file": "STORY_QC.md",
+          "note": "盲读 → 对照两轮；独立只读审阅 agent"
+        }
+      ],
+      "files": [
+        "research/facts.md",
+        "BRIEF.md",
+        "STORYLINES.md",
+        "world.md",
+        "outline.md",
+        "script.md",
+        "镜头表.md",
+        "STORY_QC.md",
+        "PROMPTS.md"
+      ],
+      "confirmations": [
+        {
+          "id": "C0",
+          "name": "选择卡",
+          "when": "第 1 步"
+        },
+        {
+          "id": "①",
+          "name": "选方案",
+          "when": "2.3"
+        },
+        {
+          "id": "②",
+          "name": "主角与世界文字卡 + 画风锁（不出图）",
+          "when": "2.5"
+        },
+        {
+          "id": "③",
+          "name": "剧本 + 分镜（替代原“分镜表看一眼”）",
+          "when": "2.9 通过后"
+        },
+        {
+          "id": "④",
+          "name": "参考图/首帧",
+          "when": "第 3 步后端路由之后"
+        },
+        {
+          "id": "⑤",
+          "name": "试拍结果 + 批量生成镜头数和时长",
+          "when": "生产前"
+        }
+      ],
+      "confirmations_max": 6,
+      "lint": {
+        "节拍覆盖": true,
+        "阅读速度": true,
+        "旁白占比": true,
+        "因果连接": true,
+        "年表味": true,
+        "步骤完整": false,
+        "未实测": false,
+        "卖点依据": false,
+        "事实来源": true,
+        "张力变化": true,
+        "贯穿物": true,
+        "声音转折": true,
+        "主角一致": true,
+        "品牌资产": false,
+        "段落对齐": false,
+        "关键镜头保护": true,
+        "结构模板": true,
+        "信息密度": true
+      },
+      "qc": {
+        "items": [
+          "钩子",
+          "问题/目标",
+          "主角",
+          "因果链",
+          "展示",
+          "节奏与信息密度",
+          "结尾",
+          "真实",
+          "可拍性",
+          "证据支撑",
+          "争议标注"
+        ],
+        "weights": {
+          "钩子": 1,
+          "问题/目标": 1,
+          "主角": 1,
+          "因果链": 2,
+          "展示": 1,
+          "节奏与信息密度": 1,
+          "结尾": 2,
+          "真实": 2,
+          "可拍性": 1,
+          "证据支撑": 1,
+          "争议标注": 1
+        },
+        "na": [],
+        "note": "",
+        "pass": "加权平均 ≥ 7，所有非 N/A 项 ≥ 5，无 P0",
+        "p0": [
+          "事实、数据或卖点错误；没有来源的说法被当成事实写",
+          "盲读复述不出观众问题",
+          "结尾没有回答问题"
+        ]
+      },
+      "review_budget": {
+        "whole": 4,
+        "per_act": 2,
+        "rewrite_rounds": 2,
+        "back_to_2_3": 1
+      },
+      "constants": {
+        "write_speed": 4.0,
+        "read_red": 4.5,
+        "narration_limit": 0.8,
+        "info_points_max": 9,
+        "breathing_beats": "1–2",
+        "act_len": [
+          30,
+          45
+        ],
+        "align_tol": 0.5
+      }
+    }
+  },
+  "shots": [],
+  "subtitles": {
+    "burn_in": true,
+    "font_size": 42,
+    "margin_h": 48
+  }
+}
