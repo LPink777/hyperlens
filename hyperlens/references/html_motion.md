@@ -50,7 +50,7 @@ python3 scripts/html_render.py comp.html --out x --check-determinism            
 ## 3. 制作顺序
 
 1. 先写分镜/SPEC（`references/storyboard_spec.md`），锁画风（`references/style_lock.md`）。
-2. 从 `assets/comp.template.html` 复制起步：里面有缓动、弹簧、区间进度 `seg()`、种子随机、镜头关键帧 `camera()`。
+2. 从 `assets/comp.template.html` 复制起步：里面有缓动、弹簧、区间进度 `seg()`、种子随机、镜头关键帧 `camera()`、按元素大小区分的动作预设 `enter(t, start, 'snap'|'settle'|'textIn')` 和文字停留 `hold()`（第 6 节）。多画幅时每个画幅单独排版（竖屏做减法、加大字号、从上到下），按画幅各渲一版。
 3. 每个镜头先出 3–6 张静帧对照分镜，再出片；不满意只重做该镜。
 4. 跑 `--check-determinism`，再正式渲染。
 5. 进 `project.json` 合成，跑 `validate_video.py`。
@@ -71,3 +71,20 @@ python3 scripts/html_render.py comp.html --out x --check-determinism            
 | 团队已用 React、要参数化批量出片 | Remotion（见 `references/remotion.md`，注意其许可） |
 
 HyperFrames 契约要点（用自己的话概括）：每个定时元素用 `class="clip" data-start data-duration` 声明出现区间；每个合成只建一个暂停的时间轴并注册到 `window.__timelines`；不要动画 `display/visibility`；媒体不要自己 play/seek；资源用根相对路径；渲染前跑 `check`，再用 `snapshot --review` 出联系表审片。
+
+## 6. 动作按大小区分（经验值，起点不是配额）
+
+元素越小，动作越短越干脆；元素越大，越要有重量、稳稳落定；文字进得快、停得久。在 SPEC 的 MOTION 行里**按元素类别**预先定好，全片同类元素用同一组参数（`assets/comp.template.html` 的 `MOTION` / `enter()` 预设：`snap` / `settle` / `textIn`）。
+
+| 类别 | 例子 | 时长（经验值） | 缓动 | 位移 / 缩放 | 过冲 |
+|---|---|---|---|---|---|
+| 小元素 `snap` | 按钮、图标、开关、勾选、光标点击 | 120–220 ms（30fps 约 4–7 帧） | outCubic / outQuart | 位移 ≤ 16px，缩放 0.9→1 | 无，或 ≤ 3% |
+| 大元素 `settle` | 面板、弹窗、卡片、整块画面、镜头推拉 | 450–750 ms（约 14–22 帧） | 临界阻尼（`1-(1+ωx)e^{-ωx}`）或 outQuint；弹簧阻尼比 ≥ 0.8 | 位移 40–120px 或 8–15% 画面 | 无，或 ≤ 2% 后静止 |
+| 文字进场 `textIn` | 标题、标注、数字 | 进场 250–400 ms | outQuart | 位移 ≤ 24px，不缩放、不逐字乱跳 | 无 |
+| 文字停留 | 同上 | ≥ 字数 ÷ 4.5 + 1.5 秒（模板 `hold()`） | 静止 | 被阅读时不动 | — |
+| 退场 | 任意 | 进场时长的 60–80% | inCubic | 同进场方向的小位移 | 无 |
+
+- 同一时刻只有一个主动作；次要元素晚 100–200 ms 启动、走 50–70% 的距离（见 `storyboard_spec.md` 第 3 节构图数字）。
+- 卡拍时，动作的“落定”时刻（不是开始时刻）对齐拍点；音效触发与画面时间戳来自同一份时间表（见 SKILL.md 第 5 步“音乐卡拍”）。
+- 俏皮风格可以把小元素换成阻尼 0.45–0.6 的弹簧（`style_lock.md` 第 2 节），但大元素仍然稳定落定。
+- **每段动画做完自查**：动作停下的那一帧，观众知不知道下一眼该看哪？说不出来，就是动作在和核心信息抢戏——减少同时在动的元素、缩短装饰动作，或让强调色只落在一个焦点上。

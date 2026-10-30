@@ -8,6 +8,11 @@ Environment overrides:
   VIDEO_STUDIO_FONT_REGULAR   path to a CJK regular font file
   VIDEO_STUDIO_FONT_BOLD      path to a CJK bold font file
   VIDEO_STUDIO_FONT_FAMILY    font family name for subtitles (default: Noto Sans CJK SC)
+
+Multi-aspect (one script/timeline, separate layout per aspect):
+  output.variants = {"9:16": {"path": "output/final_9x16.mp4", "subtitles": {...}}}
+  shot.variants   = {"9:16": {"source": "shots/s01_9x16.mp4", "crop_focus": [0.5, 0.35], ...}}
+  build --aspect 9:16 | build --all | build --preview (low-res draft for storyboard_board.py)
 """
 import argparse
 import functools
@@ -101,13 +106,75 @@ def run(command):
     subprocess.run(command, check=True)
 
 
-def load_project(path):
+def _even(value):
+    value = int(round(value))
+    return value - (value % 2)
+
+
+def _slug(value):
+    return "".join(ch if ch.isalnum() else "x" for ch in str(value))
+
+
+def apply_variant(project, variant):
+    """Re-target a project to another aspect: same shots/timeline, per-aspect layout overrides."""
+    out = project.get("output", {})
+    variants = out.get("variants", {}) or {}
+    if variant not in variants and variant not in ASPECT_PRESETS:
+        raise ValueError(f"unknown variant {variant}; define output.variants[{variant!r}] or use a preset: {', '.join(ASPECT_PRESETS)}")
+    conf = dict(variants.get(variant, {}))
+    base_path = Path(out.get("path", "output/final.mp4"))
+    new_out = {k: v for k, v in out.items() if k not in {"aspect", "width", "height", "path", "variants"}}
+    aspect = conf.pop("aspect", variant if variant in ASPECT_PRESETS else None)
+    if aspect:
+        new_out["aspect"] = aspect
+    for key in ("width", "height", "fps"):
+        if key in conf:
+            new_out[key] = conf.pop(key)
+    new_out["path"] = conf.pop("path", str(base_path.with_name(f"{base_path.stem}_{_slug(variant)}{base_path.suffix}")))
+    new_out["variant"] = variant
+    project["output"] = new_out
+    # Subtitle sizes tuned for the main aspect do not carry over; the variant sets its own or gets defaults.
+    subs = {k: v for k, v in (project.get("subtitles") or {}).items() if k not in {"font_size", "margin_v", "margin_h", "outline"}}
+    subs.update(conf.pop("subtitles", {}) or {})
+    project["subtitles"] = subs
+    shots = []
+    for shot in project["shots"]:
+        merged = {k: v for k, v in shot.items() if k != "variants"}
+        merged.update((shot.get("variants") or {}).get(variant, {}))
+        merged["_variant_override"] = variant in (shot.get("variants") or {})
+        shots.append(merged)
+    project["shots"] = shots
+    return project
+
+
+def apply_preview(project, scale=0.5):
+    """Low-res draft for the storyboard board: same timeline, smaller frame, sizes scaled."""
+    out = project["output"]
+    out["width"], out["height"] = _even(out["width"] * scale), _even(out["height"] * scale)
+    path = Path(out["path"])
+    out["path"] = str(path.with_name(f"preview_{path.stem}{path.suffix}"))
+    out["preview"] = True
+    subs = project["subtitles"]
+    for key in ("font_size", "margin_v", "margin_h", "outline"):
+        subs[key] = max(1, round(subs[key] * scale))
+    for shot in project["shots"]:
+        for key in ("font_size", "margin_v"):
+            if key in shot:
+                shot[key] = max(1, round(float(shot[key]) * scale))
+    return project
+
+
+def load_project(path, variant=None, preview=False):
     path = Path(path).resolve()
     with path.open(encoding="utf-8") as handle:
         project = json.load(handle)
     if not isinstance(project.get("shots"), list) or not project["shots"]:
         raise ValueError("project.json requires a non-empty shots array")
     project.setdefault("project", path.stem)
+    if variant:
+        apply_variant(project, variant)
+    else:
+        project["shots"] = [{k: v for k, v in shot.items() if k != "variants"} | {"_variant_override": False} for shot in project["shots"]]
     out = project.setdefault("output", {})
     preset = out.get("aspect")
     if preset:
@@ -135,6 +202,8 @@ def load_project(path):
     project["audio"].setdefault("loudnorm", True)
     project["_manifest_path"] = path
     project["_base"] = path.parent
+    if preview:
+        apply_preview(project)
     return project
 
 
@@ -167,8 +236,10 @@ def shot_duration(shot, base):
 
 def validate_project(project, require_sources=True):
     base = project["_base"]
-    errors, shots = [], []
+    errors, shots, warnings = [], [], []
     total = 0.0
+    out = project["output"]
+    out_ratio = out["width"] / out["height"]
     ids = set()
     for index, shot in enumerate(project["shots"], 1):
         kind = shot.get("type", "video")
@@ -187,6 +258,18 @@ def validate_project(project, require_sources=True):
             if require_sources and not source.is_file():
                 errors.append(f"{shot_id}: missing source {source}")
                 continue
+            if out.get("variant") and require_sources and not shot.get("_variant_override"):
+                try:
+                    vs = [s for s in probe(source).get("streams", []) if s.get("codec_type") == "video"]
+                    if vs and abs(vs[0]["width"] / vs[0]["height"] - out_ratio) / out_ratio > 0.1:
+                        warnings.append(f"{shot_id}: source aspect {vs[0]['width']}x{vs[0]['height']} differs from {out['width']}x{out['height']} "
+                                        f"and no shot.variants[{out['variant']!r}] layout; give it its own source, or set fit=cover + crop_focus and review the board")
+                except (subprocess.CalledProcessError, KeyError, ZeroDivisionError):
+                    pass
+        if shot.get("crop_focus") is not None:
+            cf = shot["crop_focus"]
+            if not (isinstance(cf, (list, tuple)) and len(cf) == 2 and all(isinstance(v, (int, float)) and 0 <= v <= 1 for v in cf)):
+                errors.append(f"{shot_id}: crop_focus must be [x, y] with values 0..1")
         try:
             duration = shot_duration(shot, base)
         except (ValueError, KeyError, subprocess.CalledProcessError) as exc:
@@ -197,7 +280,13 @@ def validate_project(project, require_sources=True):
     music = project.get("music")
     if music and require_sources and not resolve(base, music["source"]).is_file():
         errors.append(f"music: missing source {resolve(base, music['source'])}")
-    return {"project": project["project"], "duration": round(total, 3), "shots": shots, "errors": errors}
+    report = {"project": project["project"], "output": f"{out['width']}x{out['height']}@{out['fps']}", "duration": round(total, 3),
+              "shots": shots, "errors": errors}
+    if out.get("variant"):
+        report["variant"] = out["variant"]
+    if warnings:
+        report["warnings"] = warnings
+    return report
 
 
 def srt_time(seconds):
@@ -370,9 +459,11 @@ def escape_filter_path(path):
     return str(path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'").replace(",", "\\,").replace("[", "\\[").replace("]", "\\]")
 
 
-def fit_filters(width, height, fit):
+def fit_filters(width, height, fit, focus=None):
     if fit == "cover":
-        return [f"scale={width}:{height}:force_original_aspect_ratio=increase", f"crop={width}:{height}"]
+        fx, fy = (focus or (0.5, 0.5))
+        return [f"scale={width}:{height}:force_original_aspect_ratio=increase",
+                f"crop={width}:{height}:(iw-{width})*{float(fx):.4f}:(ih-{height})*{float(fy):.4f}"]
     return [
         f"scale={width}:{height}:force_original_aspect_ratio=decrease",
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black",
@@ -403,7 +494,7 @@ def normalize_shot(project, shot, duration, target, temp):
         background = shot.get("background", "#101820")
         command += ["-f", "lavfi", "-i", f"color=c={background}:s={width}x{height}:r={fps}:d={duration}"]
         command += silence
-    filters = fit_filters(width, height, shot.get("fit", "cover" if kind == "image" else "contain"))
+    filters = fit_filters(width, height, shot.get("fit", "cover" if kind == "image" else "contain"), shot.get("crop_focus"))
     filters += ["setsar=1"]
     if kind == "image" and shot.get("motion") in {"zoom_in", "zoom_out"}:
         frames = max(1, int(round(duration * fps)))
@@ -523,6 +614,13 @@ def init_project(path, title, aspect="16:9"):
     if path.exists():
         raise FileExistsError(f"refusing to overwrite {path}")
     width, height = ASPECT_PRESETS[aspect]
+    base = path.parent
+    for sub in ("ref", "shots", "html", "images", "audio", "scripts", "frames", "frames/board", "qc", "output"):
+        (base / sub).mkdir(parents=True, exist_ok=True)
+    template = Path(__file__).resolve().parent.parent / "assets" / "PROGRESS.template.md"
+    progress = base / "PROGRESS.md"
+    if template.is_file() and not progress.exists():
+        progress.write_text(template.read_text(encoding="utf-8").replace("{{title}}", title), encoding="utf-8")
     project = {
         "project": title,
         "output": {"width": width, "height": height, "fps": 24, "path": "output/final.mp4"},
@@ -576,17 +674,28 @@ def main():
     for name in ("check", "subtitles", "build"):
         cmd = sub.add_parser(name)
         cmd.add_argument("manifest", type=Path)
+        cmd.add_argument("--aspect", help="render a variant: key of output.variants or a preset (same timeline, per-aspect layout)")
         if name == "check":
             cmd.add_argument("--json", action="store_true")
         if name in ("subtitles", "build"):
             cmd.add_argument("--output", type=Path)
+        if name == "build":
+            cmd.add_argument("--all", action="store_true", help="build the main output and every output.variants entry")
+            cmd.add_argument("--preview", action="store_true", help="half-resolution draft (preview_*.mp4) for the storyboard board")
     args = parser.parse_args()
     if args.command == "doctor":
         return doctor()
     if args.command == "init":
         init_project(args.manifest, args.title, args.aspect)
         return 0
-    project = load_project(args.manifest)
+    if args.command == "build" and args.all:
+        raw = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
+        names = [None] + list((raw.get("output", {}).get("variants") or {}).keys())
+        for name in names:
+            print(f"== variant: {name or 'main'}", flush=True)
+            build_project(load_project(args.manifest, name, args.preview))
+        return 0
+    project = load_project(args.manifest, args.aspect, getattr(args, "preview", False))
     if args.command == "check":
         report = validate_project(project)
         print(json.dumps(report, ensure_ascii=False, indent=2))

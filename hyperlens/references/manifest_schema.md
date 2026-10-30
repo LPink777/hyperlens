@@ -11,6 +11,7 @@
 | `output.width / height` | integer | 默认 1280×720；必须为偶数；显式填写会覆盖 aspect |
 | `output.fps` | integer | 默认 24 |
 | `output.path` | string | 默认 `output/final.mp4`；命令行可覆盖 |
+| `output.variants` | object | 可选，多画幅：键是画幅名（预设名或自定义名），值可含 `aspect` / `width` / `height` / `fps` / `path` / `subtitles`。`build --aspect <键>` 出这个画幅，`build --all` 出主画幅 + 全部变体。变体不继承主画幅的字幕字号和边距（`font_size`、`margin_v`、`margin_h`、`outline`），要么在变体里写，要么用该画幅的默认值 |
 | `shots` | array | 非空镜头数组 |
 | `music` | object | 可选背景音乐 |
 | `subtitles` | object | 字幕设置 |
@@ -34,6 +35,21 @@
 - `duration` 可省略，此时读取源视频完整时长；设置后裁剪到该时长。
 - `volume` 控制该镜原声，默认 1。
 - `fade` 为淡入/淡出黑场秒数，默认 0。
+
+## 多画幅：逐镜覆盖与裁切焦点
+
+```json
+{
+  "id": "s03", "type": "video", "source": "shots/s03_16x9.mp4", "duration": 3,
+  "variants": {"9:16": {"source": "shots/s03_9x16.mp4"}},
+  "subtitle": "同一句字幕"
+}
+```
+
+- `variants.<画幅>`：这个画幅下覆盖该镜的任意字段（`source`、`fit`、`crop_focus`、`text`、`font_size`、`motion`……）；时长和字幕通常不改，保证各画幅共用同一时间轴和剧本。
+- `crop_focus: [x, y]`（0–1，默认 0.5/0.5）：`fit: cover` 时裁切窗口的位置，0 = 靠左/靠上，1 = 靠右/靠下。只在不得不裁时用，且必须过一遍该画幅的看板。
+- `check --aspect <画幅>` 会对“源画面比例和输出差 >10% 又没有本画幅覆盖”的镜头给 warning（`warnings` 字段）。
+- `build --preview`：同一时间轴的半分辨率草稿（`preview_*.mp4`），给 `storyboard_board.py` 出看板用。
 
 ## 图片镜头
 

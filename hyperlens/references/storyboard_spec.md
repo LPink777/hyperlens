@@ -15,11 +15,11 @@
 
 ```text
 GOAL:    观众看完的感受或动作，一句话
-OUTPUT:  后端（AI 视频 / HTML / Remotion / 素材混剪）、宽×高、fps
-TIME:    秒 × fps = 帧；有音乐写 BPM 与每拍帧数
-LOOK:    画风锁三行（见 style_lock.md）+ 字体/字号/字距 + 材质参数（颗粒%、阴影、暗角%）
+OUTPUT:  后端（AI 视频 / HTML / Remotion / 素材混剪）、宽×高、fps；多画幅时每个画幅一行（各自的版式要点）
+TIME:    秒 × fps = 帧；有音乐写 BPM 与每拍帧数（beat_map.py 量出，切点/音效/画面变化共用 beats.json）
+LOOK:    画风锁三行（见 style_lock.md）+ 字体/字号/字距 + 材质参数（颗粒%、阴影、暗角%）；有参考片时数值来自 风格说明.md（reference_breakdown.md）
 OBJECTS: 观众必须认出来的每个物，以及让它不靠标签也认得出的材质和细节
-MOTION:  按角色命名缓动（入场/移动/退场/镜头）；弹簧写阻尼比；时长与错峰写帧数
+MOTION:  按角色命名缓动（入场/移动/退场/镜头）；弹簧写阻尼比；时长与错峰写帧数；按元素类别预定义（小元素 snap / 大元素 settle / 文字 textIn + 停留，见 html_motion.md 第 6 节）
 SHOTS:   每镜一行：帧区间、唯一主动作、观众读到什么（带时间窗）、声音、如何交给下一镜
 BANNED:  默认禁用清单 + 本片额外不许变成的样子
 QA:      要检查的帧及每帧必须显示什么

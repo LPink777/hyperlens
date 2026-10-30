@@ -231,7 +231,7 @@ def compute_plan(genre, duration, story):
         step("2.1", "灵感卡" if genre == "mv" else "素材/灵感卡", "改写" if genre == "mv" else "做", facts_file,
              "参考作品（学什么/不拿什么）、情绪关键词、歌词或主题；片中有真实事实照样写 F#")
     elif genre == "tutorial":
-        step("2.1", "素材与事实卡", "做", facts_file, "按教程实测规则：能在 box 上安全跑的实跑；跑不了的请用户给录屏/截图；都没有标 [未实测]")
+        step("2.1", "素材与事实卡", "做", facts_file, "按教程实测规则：能在本机或沙箱里安全跑的实跑；跑不了的请用户给录屏/截图；都没有标 [未实测]")
     else:
         step("2.1", "素材与事实卡", "合并" if small else "做", facts_file, "每条 F# / 内容 / 来源 / 可信度 / 用途；至少 3 条有张力的素材")
     # 2.2

@@ -1,6 +1,6 @@
 ---
 name: Hyperlens
-description: 通用视频策划与制作流程，适用于任意题材的短视频、广告、科普、解说、产品发布、功能演示、教程、剧情短片、动态图形和图片/视频混剪，横屏与竖屏（9:16）均可。用户说“做个视频”“生成视频”“文生视频/图生视频”“把这篇稿子做成短视频”“分镜到成片”“动态图形/代码出片”“一镜到底”“配字幕/配乐”“竖屏短视频”时使用。先用一张选择卡确认时长、画幅、风格、参数和交付物，再写故事与剧本并过故事验收，然后负责分镜、画风锁、逐镜后端选择（含 HTML 动态合成渲染）、自动合成、烧录中文字幕、审片和技术质检。
+description: 通用视频策划与制作流程，适用于任意题材的短视频、广告、科普、解说、产品发布、功能演示、教程、剧情短片、动态图形和图片/视频混剪，横屏与竖屏（9:16）均可，可同一套素材分别排版出多画幅。用户说“做个视频”“生成视频”“文生视频/图生视频”“把这篇稿子做成短视频”“分镜到成片”“动态图形/代码出片”“一镜到底”“配字幕/配乐”“竖屏短视频”时使用。先用一张选择卡确认时长、画幅、风格、参数和交付物，再写故事与剧本并过故事验收，有参考片时先做参考片拆解，然后负责分镜、画风锁、音乐卡拍、逐镜后端选择（含 HTML 动态合成渲染）、全片缩略图看板、自动合成、烧录中文字幕、审片和技术质检。
 ---
 
 # Hyperlens
@@ -9,7 +9,7 @@ description: 通用视频策划与制作流程，适用于任意题材的短视�
 
 ## 总流程
 
-`需求确认（选择卡 C0）→ 故事层 2.1–2.9（素材与事实卡 → 观众问题与目标 → 方案【①】→ 主角 → 世界 + SPEC/画风锁【②】→ 节拍 → 剧本 → 切分镜（含预定后端）→ story_lint + storyboard_lint → 故事验收【③】）→ 后端路由 → 参考图/首帧确认【④】→ 试拍 1–2 镜 + 批量确认【⑤】→ 镜头生产 → 逐镜验收（关键镜头保护）→ 音频素材级验收 → project.json 检查 → 合成（字幕与声音）→ 成片音频验收 → 审片 + 技术质检 → 按镜头迭代`
+`需求确认（选择卡 C0）→ 故事层 2.1–2.9（素材与事实卡 → 观众问题与目标 → 方案【①】→ 主角 →（有参考时）参考片拆解 → 世界 + SPEC/画风锁【②】→ 节拍 → 剧本 → 切分镜（含预定后端）→ story_lint + storyboard_lint → 故事验收【③】）→ 后端路由 → 参考图/首帧确认【④】→ 试拍 1–2 镜 + 批量确认【⑤】→ 镜头生产 → 逐镜验收（关键镜头保护）→ 音频素材级验收 → project.json 检查 →（有配乐时）卡拍对齐 → 低清预览 + 全片看板（每个画幅）【⑥】→ 合成（字幕与声音）→ 成片音频验收 → 审片 + 技术质检 → 按镜头迭代`
 
 **全程确认点**（哪些有由 `story_lint.py --plan` 算出，见第 2 步）：
 
@@ -21,12 +21,14 @@ description: 通用视频策划与制作流程，适用于任意题材的短视�
 | ③ | 剧本 + 分镜（替代原“分镜表看一眼”） | 2.9 通过后 | 总是 |
 | ④ | 参考图/首帧（合并主角和世界参考图） | 第 3 步后端路由之后 | 只在用 AI 图或 AI 视频时 |
 | ⑤ | 试拍结果 + 批量生成的镜头数和时长（一条消息） | 生产前 | 只在用 AI 视频时 |
+| ⑥ | 各画幅的全片看板（一条消息，逐个画幅确认） | 正式合成前 | 只在多画幅时；单画幅的看板是内部验收门，不问用户 |
 
-- 全程最多：HTML/素材路线 4 次；AI 路线 6 次；<15 秒的 HTML 片 2 次（C0 + ③）。
+- 全程最多：HTML/素材路线 4 次；AI 路线 6 次（多画幅各 +1 次⑥）；<15 秒的 HTML 片 2 次（C0 + ③）。
 - 用户说“你定”：①②③ 自动按推荐并在下一条消息复述选择；④⑤ 涉及生成额度，仍要确认。
 
 - 用户给出视频题目或稿子后，**不要直接开做**，先完成第 1 步。
 - 不要在没有剧本和分镜时直接生成整片；不要只看命令退出码就宣称成片合格。
+- **续做**：中途断了或在新会话里接着做，先读项目的 `PROGRESS.md` 和项目文件夹（立项单 → 风格说明 → 镜头表 → `qc/` 最新记录），从“下一步”接着做，不凭记忆重来（见第 4 步“项目文件夹与进度”）。
 
 ## 0. 环境自检（每个新环境做一次）
 
@@ -72,6 +74,8 @@ python3 -m venv ~/.venvs/video-studio
 | 字幕 | 烧录中文字幕 | 外挂 SRT | 中英双语 | 无字幕 |
 | 背景音乐 | 无音乐 | 生成的简单音调铺底 | 用户提供已授权音乐 | — |
 
+画幅题按需加一个选项或附加项 **“多画幅（16:9 + 9:16）”**：同一套素材、时间轴和剧本，每个画幅单独排版、单独出看板（规则见第 4 步“多画幅”）；选了它，参数题要按每个画幅分别给分辨率。
+
 其他可替换的附加项：封面（首帧/单独设计/不需要）、语言（简体中文/英文/双语）、品牌元素（账号名水印/片尾卡/不加）、素材来源（只用可复现图形/允许 AI 生成/用户提供素材）。
 
 确认完后用一句话复述最终简报：目标、受众、平台、时长、画幅、风格、参数、交付物、声音与字幕、必须出现的信息。涉及真实人物、品牌、新闻或数据时先核实来源，不把生成画面当成真实记录。
@@ -98,12 +102,13 @@ python3 scripts/story_lint.py --plan <project>/project.json   # 写回 story.pla
 用 AI 生成时另有 `PROMPTS.md`（按角色 ID 分节）。模板都在 `assets/`：`STORY` / `facts` / `BRIEF` / `world` / `outline` / `script` / `STORY_QC` / `storyboard` 的 `.template.md`。
 
 **9 个小步骤**（按 `story.plan` 删减或合并）
-- **2.1 素材与事实卡**：每条 F# / 内容 / 来源 / 可信度 / 用途；至少 3 条有张力的素材；屏上每个说法都追得到来源，示意数据标“示意”。剧情/MV 换成灵感卡。教程按实测规则：能在 box 上安全跑的实跑；跑不了的请用户给录屏或截图（可与确认①同一条消息问）；都没有的标 `[未实测]`。
+- **2.1 素材与事实卡**：每条 F# / 内容 / 来源 / 可信度 / 用途；至少 3 条有张力的素材；屏上每个说法都追得到来源，示意数据标“示意”。剧情/MV 换成灵感卡。教程按实测规则：能在本机或沙箱里安全跑的实跑；跑不了的请用户给录屏或截图（可与确认①同一条消息问）；都没有的标 `[未实测]`。
 - **2.2 观众问题与目标（BRIEF）**：观众是谁 / 观众问题 / 答案 / 揭晓方式（悬念型或结果先行型）/ 目标 / 情绪路线 / 观众带走（= 原来的“一件事”）。选择卡已确认的平台、时长等直接引用。
 - **2.3 方案（比结构）**：默认 3 个，教程 2 个，<15 秒不出（回复里一句话提备选）。每个写 logline、结构模板、钩子画面 + 第一句、主角类型、冲突、转折、结尾回扣、画风一行、声音一行、可拍性风险；方案之间结构、主角类型、钩子类型至少两项不同；推荐方案找 1–2 部标杆作品写“学什么/不拿什么”，存 `STORYLINES.md`。产品发布、功能演示、一镜到底类：“画风一行”写 `references/one_take.md` 的中心画面创意，不另出三个创意。**确认①**只问选哪个。
 - **2.4 主角**：1–2 个，主角不一定是人（用户画像、产品、叙述者、拟人概念、“你”、群体）。角色卡：ID / 类型、身份、欲望、障碍、转变、视觉锚点（AI 拍真人时放在手、服装、饰物上）、一致性描述（逐字写进 `PROMPTS.md`）、可拍方式。
+- **参考片拆解（用户给了参考片、参考图或以前的作品时，在 2.5 之前做）**：按 `references/reference_breakdown.md` 拆出具体色号、字体风格与大小字号比、第一眼视线落点、平均镜头时长与切换节奏、动作手感、画面质感，禁止“高级感”这类虚词；视频参考先跑 `python3 scripts/ref_analyze.py <参考片> --out <project>/ref/analysis` 自动量切分、色板 HEX、明度饱和度并出拆解拼图，字体和动作手感由人或审阅者补。结果存项目里的 `风格说明.md`，并入下面的 SPEC 和画风锁。学感觉，不照搬人物、Logo 和文案。
 - **2.5 世界 + SPEC/画风锁**：场景或界面状态 3–5 个，每张卡写外观或状态、光线或配色、必有元素、禁止出现的东西、首次出现的拍；推荐一个贯穿物（钩子、中点、结尾都出现，意义有变化）；广告/产品写品牌卡。写完后按 `references/storyboard_spec.md` 派生 SPEC（LOOK / MOTION / SHOTS / BANNED / QA），按 `references/style_lock.md` 派生镜头表前的画风锁三行（画风、色板、角色）。**确认②**（≥45 秒）只发文字卡和画风锁三行，不出图、不消耗额度。
-- **2.6 节拍大纲**：拍 / 时间 / 功能 / 连接词（但是、所以、于是）/ 发生了什么 / 观众得到的信息 / 张力 −5…+5 / 贯穿物状态 / 音乐段落。至少一次张力下沉；每拍新信息 ≤1，全片 ≤ 时长÷10（最少 2）；1–2 个呼吸拍。一镜到底类把“在动 / 静止 / 承接”作为附加列写进这张表。15–<45 秒、产品、动态图形并入 2.7。
+- **2.6 节拍大纲**：拍 / 时间 / 功能 / 连接词（但是、所以、于是）/ 发生了什么 / 观众得到的信息 / 张力 −5…+5 / 贯穿物状态 / 音乐段落。至少一次张力下沉；每拍新信息 ≤1，全片 ≤ 时长÷10（最少 2）；1–2 个呼吸拍。一镜到底类把“在动 / 静止 / 承接”作为附加列写进这张表。有配乐时先量拍点：`python3 scripts/beat_map.py analyze audio/music.wav --out audio/beats.json`，音乐段落列直接用它的段落（前奏 / 主歌 / 高潮 / 尾声）和小节首拍时间，拍的边界尽量落在小节首拍上。15–<45 秒、产品、动态图形并入 2.7。
 - **2.7 剧本**：拍 / 画面 / 旁白·屏上字 / 声音 / 时长（教程加 操作 / 屏幕结果 / 为什么；MV 写段落-意象-情绪表）。口播约 4 字/秒，每拍 >4.5 字/秒为红；旁白占比上限口播 90%、MV 0%、其余 80%；画面已经拍出来的不再说；第一句按揭晓方式写，最后一句回扣或给出行动；事实或卖点句后标 `[F#]`；推荐至少一处声音转折。
 - **2.8 切分镜**：由剧本推出镜头表，每拍 ≥1 镜，每镜只属于一拍。原列保留：`时间段` 在第一列，加 **物**（名词）、**动作**（物自己的动词）、**镜头**（停/缓推/拉远/横移/快推/砸入/切/一镜到底）、**承接**；新列：拍 / 关键（钩子、转折、高潮、结尾标“是”）/ 角色 / 场景或界面状态 / 道具或元素 / 景别 / **预定后端**（AI 视频 / AI 图 / HTML / 素材 / 标题卡，按 `references/backend_routing.md` 的预定后端速查）/ 剧本行号 / 首帧编号（第 3 步后填）。模板：`assets/storyboard.template.md`。AI 难拍的动作在这一步就换成可拍的表达。
 - **2.9 故事验收**：新开一个只读文字、没参与 2.1–2.8 的审阅 agent，两轮：盲读（只给剧本 + 镜头表，用陌生人口吻复述观众问题、主角和 TA 想要什么、结尾给了什么、带走的那一句）→ 对照（再给 BRIEF、事实卡、大纲和 `story` 字段，按 `story.plan.qc` 的权重打分、查 P0）。通过线：加权平均 ≥7，所有非 N/A 项 ≥5，无 P0。记录写进 `STORY_QC.md`。不通过：只重写低分拍并复审（≤2 轮）→ 回到 2.3 换方案（≤1 次，<15 秒跳过）→ 仍不过就把分数表、低分拍和复述发给用户，二选一：(a) 按最高分版本继续并在交付说明标风险；(b) 用户调整方向或补素材后重来。
@@ -143,22 +148,32 @@ python3 scripts/storyboard_lint.py <project>/镜头表.md --target <总秒数> [
 
 ## 4. 生产素材
 
-项目目录：
+项目目录（`video_pipeline.py init` 会建好目录和 `PROGRESS.md`）：
 
 ```text
 <project>/
+├── PROGRESS.md    # 进度：当前阶段、确认点结果、关键决定及理由、下一步、LESSONS（模板 assets/PROGRESS.template.md）
 ├── project.json
-├── STORY.md 或 research/facts.md · BRIEF.md · world.md · outline.md   # 故事层（按 story.plan.files）
-├── STORYLINES.md / script.md / 镜头表.md / STORY_QC.md   # 方案、剧本、镜头表、故事验收
+├── STORY.md 或 research/facts.md · BRIEF.md   # 立项单：简报 + 事实卡（哪些信息不能动、哪些素材必须真实）
+├── world.md · outline.md                      # 故事层（按 story.plan.files）
+├── 风格说明.md    # 有参考时：参考片拆解结果（并入画风锁/SPEC）
+├── STORYLINES.md / script.md / 镜头表.md / STORY_QC.md   # 方案、剧本、分镜表、故事验收
 ├── PROMPTS.md # AI 生成时：按角色 ID 分节的提示词
-├── shots/     # 镜头视频（生成、已有或 html_render 渲染）
-├── html/      # HTML 合成镜头源文件
-├── images/    # 图形卡片、首帧、参考图、截图
-├── audio/     # 配音、音乐、铺底音
+├── ref/       # 参考片、参考图和 ref_analyze 输出
+├── shots/     # 镜头视频（生成、已有或 html_render 渲染；多画幅按 _16x9 / _9x16 后缀分开）
+├── html/      # HTML 合成镜头源文件（源码）
+├── images/    # 图形卡片、首帧、参考图、截图（素材）
+├── audio/     # 配音、音乐、铺底音、beats.json
 ├── scripts/   # 本项目的卡片渲染脚本等（保证可复现）
-├── frames/    # 静帧与质检抽帧
-└── output/    # final.mp4 / final.srt
+├── frames/    # 静帧、质检抽帧、board/<画幅>/ 看板
+├── qc/        # 检查记录：每轮看板问题与改动、音频和音画同步记录（shots/QC.md 仍记逐镜验收）
+└── output/    # final*.mp4 / final*.srt / 封面
 ```
+
+**项目文件夹与进度（必做）**：
+- **立项单**就是现有的 `STORY.md`（<45 秒）或 `research/facts.md` + `BRIEF.md`，额外写清：哪些信息不能动、哪些素材必须用真实的（界面、截图、录屏、产品图、数据）；缺素材就停下来问用户，不准自己画界面、编数据。
+- **`PROGRESS.md`**：每过一个确认点（C0、①–⑥）或里程碑（试拍、批量生成完、看板通过、成片导出、交付）就更新：当前做到哪一步、各确认点结果、关键决定及理由、下一步。中途断了或新会话继续时，先读它和项目文件夹再续做。
+- **项目结束时**在 `PROGRESS.md` 的 LESSONS 段汇总这次学到、能复用的规矩，并列出建议回写进 skill 的条目——只提建议，等用户同意再改 skill，不自动改。
 
 - **HTML 镜头**：从 `assets/comp.template.html` 起步，遵守合成契约（画面只由 t 决定，暴露 `window.__seek(t)`）。先出静帧对照镜头表，再做确定性自检，最后渲染；尺寸与 `project.json` 的输出一致：
 
@@ -169,6 +184,7 @@ python3 scripts/html_render.py html/s01.html --out shots/s01.mp4 --size 720x1280
 ```
 
   单帧位移 > 80px 的快速运动开 `--shutter`。字幕不要画进 HTML，交给合成器烧录。
+  动作按元素大小区分：小元素（按钮、图标、开关）短促干脆，大元素（面板、弹窗、整块画面）有重量、稳稳落定，文字进得快、停得久；在 SPEC 的 MOTION 里按类别预先定义，模板有 `snap` / `settle` / `textIn` 预设和 `hold()`，时长与缓动范围见 `references/html_motion.md` 第 6 节。每段动画做完自查：停下的那一帧观众知不知道下一眼看哪？不知道就是在和核心信息抢戏。
 - **AI 生成镜头**：全片逐字复用同一段风格前缀和角色一致性描述（`PROMPTS.md`）；先确认 1–3 张关键帧（确认④），再图生视频；保留提示词与版本，失败只重做该镜头。
 - **逐镜验收（必做）**：AI 生成或外部来源的每个镜头，进合成前都要单独过检验门，详见 `references/shot_qc.md`。
   1. 批量生成前先试拍 1–2 个最难的镜头（手部精细操作、转身正脸、复杂动作、多人），把试拍结果和批量要生成的镜头数、时长放在同一条消息里发给用户（**确认⑤**），确认后再批量。
@@ -181,6 +197,10 @@ python3 scripts/html_render.py html/s01.html --out shots/s01.mp4 --size 720x1280
   1. `python3 scripts/audio_qc.py <音频或视频> --kind vo|ambient|music|mix`（可批量）。脚本逐窗扫描并标出底噪、嘶嘶声、噼啪/静电/爆音、click、削波、响度突跳的时间点，生成频谱图；有问题 exit 1。
   2. 被标出的时间点逐个抽听并看局部频谱图；是瑕疵就只重做这段素材，过了再进混音；是故意的声音就在 QC 记录里写明。
   3. AI 视频镜头的原声默认静音，确要用时先单独导出音轨走这一步。
+- **多画幅（选了“多画幅”时）**：同一套素材、时间轴和剧本，每个画幅在源码或工程里**单独排版**，不准把横屏成片硬裁成竖屏。
+  - 竖屏做减法（每屏元素更少）、加大字号、信息从上到下排；方屏更紧凑。HTML 镜头按画幅各出一份源文件或用画幅参数分支布局，各渲一版（`shots/sXX_16x9.mp4`、`shots/sXX_9x16.mp4`）。
+  - AI 视频镜头要么按各画幅分别生成，要么生成时就留出安全构图（主体居中、上下左右留余量）；不得不裁时逐镜设置 `crop_focus`，并必须过该画幅的看板。
+  - `project.json` 用 `output.variants` 和逐镜 `variants` 覆盖（字段见 `references/manifest_schema.md`）；`check --aspect` 会对没有本画幅版式、比例又不符的镜头给 warning。每个画幅单独出看板、单独确认（⑥）。
 - **图形卡片**：按输出分辨率画，**底部约 25% 留空给字幕**，四周留 ≥ 6% 安全边距；竖屏避开平台右侧按钮和底部文案区。
 - 音乐、人物照片、商标、已有视频必须确认使用权；没有授权音乐时用无音乐或 ffmpeg 生成的简单音调铺底。
 
@@ -192,6 +212,20 @@ python3 scripts/video_pipeline.py check <project>/project.json --json
 python3 scripts/video_pipeline.py subtitles <project>/project.json   # 可选：先看 SRT 断行
 python3 scripts/video_pipeline.py build <project>/project.json       # 输出 output/final.mp4 + final.srt
 ```
+
+**有配乐时：卡拍（在合成前）**：切镜头、音效、画面变化用同一套时间点。
+- 用 2.6 量出的 `audio/beats.json`；`python3 scripts/beat_map.py snap audio/beats.json --project <project>/project.json --fps <fps>` 报告每个切点离最近拍点（`--to beat|downbeat|half`）的偏差和建议时长，按建议改 `duration`；标“需人工”的切点换拍、改镜头时长，或在 QC 记录里写明不卡的理由。
+- HTML 动态合成里，音效触发时间和 `__seek(t)` 用的关键帧时间读同一份时间表（beats.json 或项目时间表 JSON），不要各写一遍常数；动作的“落定”时刻对齐拍点。
+- 合成后按 `references/audio_qc.md`「音画同步」抽查（≥3 个卡拍点 + 每个关键音效，偏差 ≤1 帧合格）。
+
+**全片缩略图看板（正式合成前必做）**：`check` 通过后先出低清预览再出看板，规则见 `references/quality_control.md`「全片缩略图看板」：
+
+```bash
+python3 scripts/video_pipeline.py build <project>/project.json --preview [--aspect 9:16 | --all]   # 半分辨率预览 preview_*.mp4
+python3 scripts/storyboard_board.py --project <project>/project.json --preview [--aspect 9:16] [--key s03,s07]
+```
+
+看板在第 0/1/2 秒、每镜中点、关键镜头、每个转场中间帧、最后一帧各截一帧，另出手机尺寸版。审阅者按 5 个问题看（手机大小字看得清吗 / 界面数据是真的吗 / 转场中间帧糊不糊 / 前 2 秒有没有钩子 / 最后一帧能不能当封面），**只挑最严重的 3 个问题**，标清第几秒、怎么改，只重做和重渲这几段，不整片重来；记进 `qc/`。多画幅时每个画幅各出一张、单独过审，并在⑥里让用户逐个画幅确认。通过后再正式 `build`（多画幅用 `--all`）。
 
 - 支持 `video` / `image` / `title` 三类镜头；`output.aspect` 可用 `16:9`、`9:16`（720×1280）、`9:16-hd`（1080×1920）、`1:1`、`4:5`。
 - 字幕和标题卡用 libass 渲染（按字体族名选中简体中文字形），字号/边距单位是**输出像素**；自动中文断行（不拆英文单词、优先在标点处断行、避免单字孤行）。
@@ -214,6 +248,7 @@ python3 scripts/audio_qc.py output/final.mp4 --kind mix --lufs -16 --tp -1 --out
 - 每个节拍帧用陌生人的口吻写一句话描述，并点名每个物；需要解释才认得出的是 P0。
 - 按顺序看是否一镜引出一镜；出现的默认套路写进 SPEC 的 BANNED 并修掉。
 - 每个切点前后 0.2 秒抽帧，查空帧、跳变、主体出画；按手机宽度看可读性；中文无方块字，字幕不越界、不遮主体、无孤字断行。
+- 有配乐卡拍或音效时做音画同步抽查（`references/audio_qc.md`「音画同步」）。
 - 最后用正常速度带声音完整看一遍。条件允许时派一个没参与制作的 agent 只看成片挑问题。一轮集中修完再复查。
 - 对照 `references/storyboard_spec.md` 里的“做坏方式”清单和 `references/story_structures.md` 的故事层做坏方式；成片讲的故事要和通过 2.9 的那一版剧本一致。
 
@@ -233,11 +268,11 @@ python3 scripts/audio_qc.py <project>/output/final.mp4 --kind mix --out <project
 
 ## 交付
 
-列出实际存在的文件路径：成片 MP4，按选择卡附上 SRT、封面、`project.json`、剧本、镜头表和素材来源说明，并报告故事验收分数、`story_lint` 黄灯及理由、所有 `[未实测]` 步骤、审片/质检结果和仍未解决的问题。不展示不存在的规划产物；未经用户明确同意不发布、不外发。
+列出实际存在的文件路径：成片 MP4，按选择卡附上 SRT、封面、`project.json`、剧本、镜头表和素材来源说明，并报告故事验收分数、`story_lint` 黄灯及理由、所有 `[未实测]` 步骤、看板与审片/质检结果和仍未解决的问题；多画幅时每个画幅分别列出。交付后更新 `PROGRESS.md`，在 LESSONS 段写下可复用的规矩，并在回复里列出建议回写进 skill 的条目（只建议，不自动改）。不展示不存在的规划产物；未经用户明确同意不发布、不外发。
 
 ## 资源
 
-- `scripts/video_pipeline.py`：环境自检、项目初始化、检查、字幕、顺序合成（自动选编码器与中文字体）。
+- `scripts/video_pipeline.py`：环境自检、项目初始化（建目录 + `PROGRESS.md`）、检查、字幕、顺序合成（自动选编码器与中文字体）；多画幅 `--aspect` / `--all`（`output.variants`、逐镜 `variants`、`crop_focus`），低清预览 `--preview`。
 - `scripts/validate_video.py`：技术检查（编码、尺寸、竖屏、帧率、时长、音轨、fast-start、完整解码）。
 - `scripts/html_render.py`：HTML 合成 → MP4 确定性逐帧渲染（并行、快门运动模糊、静帧、确定性自检、混音）。
 - `scripts/story_lint.py`：故事层规划（`--plan` 按时长档 + 题材算步骤、文件、确认点、lint 开关、验收权重，写回 `story.plan`）与检查（节拍覆盖、阅读速度、旁白占比、因果连接、年表味、步骤完整、未实测、卖点依据、事实来源、张力、贯穿物、声音转折、主角一致、品牌资产、段落对齐、关键镜头保护、结构模板）；只用标准库，jieba 可选。
@@ -245,8 +280,12 @@ python3 scripts/audio_qc.py <project>/output/final.mp4 --kind mix --out <project
 - `scripts/shot_qc.py`：逐镜技术自检（尺寸/帧率/时长/黑帧/冻结）、抽帧拼图、生成审片提示；`--key` 附关键镜头保护提示。
 - `scripts/audio_qc.py`：通用音频验收（单个素材或成片都能用）：LUFS、真峰值、削波计数，逐窗标出底噪/嘶嘶/噼啪静电/click/突跳的时间点，出频谱图，有问题 exit 1。
 - `scripts/case_search.py`：公开案例库只读检索（返回原帖链接）。
+- `scripts/ref_analyze.py`：参考片/参考图拆解：镜头切分与平均镜头长度、代表帧拆解拼图、k-means 主色板 HEX + 色板图、明度/饱和度、`风格说明` 草稿（字体与动作手感留待填）。
+- `scripts/beat_map.py`：音乐卡拍：`analyze` 量 BPM、拍点、小节首拍、能量段落 → `beats.json`（numpy，librosa 可选）；`snap` 把镜头切点对齐到最近拍点并报告偏差和建议时长。
+- `scripts/storyboard_board.py`：全片缩略图看板（0/1/2 秒、每镜中点、关键镜头、转场中间帧、最后一帧）+ 手机尺寸版 + 5 问审阅提示；输入 `project.json`（含低清预览）或视频 + 切点。
 - `assets/project.template.json`：竖屏混合素材项目模板（含 `story` 字段）。
-- `assets/comp.template.html`：HTML 合成模板（缓动、弹簧、种子随机、镜头关键帧、`?play` / `?t=` 预览）。
+- `assets/comp.template.html`：HTML 合成模板（缓动、弹簧、种子随机、镜头关键帧、动作预设 `snap` / `settle` / `textIn` 与 `hold()`、`?play` / `?t=` 预览）。
+- `assets/PROGRESS.template.md`：项目进度文件模板（当前阶段、立项单要点、确认点、关键决定、记录、LESSONS）。
 - `assets/storyboard.template.md`：扩展镜头表示例（含拍、关键、角色、预定后端等 2.8 新列）。
 - `assets/STORY.template.md`、`assets/facts.template.md`、`assets/BRIEF.template.md`、`assets/world.template.md`、`assets/outline.template.md`、`assets/script.template.md`、`assets/STORY_QC.template.md`：故事层模板。
 - `assets/QC.template.md`：逐镜验收记录模板（含关键 / 动作改动 / 故事复核列）。
@@ -255,7 +294,8 @@ python3 scripts/audio_qc.py <project>/output/final.mp4 --kind mix --out <project
 - `references/storyboard_spec.md`：SPEC → 镜头表 → 故事板 → 审片 → 做坏方式（一件事与三个方案已并入 story_pipeline.md）。
 - `references/style_lock.md`：画风锁（由 world.md 派生）、形容词→数字、风格卡模板、默认禁用清单。
 - `references/one_take.md`：一镜到底与承接（中心画面创意并入 2.3、在动/静止/承接列并入 2.6）、操作员式运镜。
-- `references/html_motion.md`：HTML 合成契约、渲染器用法、可读性数字、HyperFrames/Remotion 选型。
+- `references/html_motion.md`：HTML 合成契约、渲染器用法、可读性数字、HyperFrames/Remotion 选型、动作按元素大小区分（时长与缓动经验值、下一眼自查）。
+- `references/reference_breakdown.md`：参考片拆解 → `风格说明.md`（拆什么、写数字不写虚词、学感觉不照搬、并入画风锁）。
 - `references/remotion.md`：Remotion 路线与许可提醒。
 - `references/prompt_library.md`：提示词写法规律、技术路线、原创中文模板。
 - `references/case_library.md`：何时查案例、怎么查、怎么用（只学结构不抄）。
@@ -263,6 +303,6 @@ python3 scripts/audio_qc.py <project>/output/final.mp4 --kind mix --out <project
 - `references/prompt_playbook.md`：单镜头提示词方法。
 - `references/manifest_schema.md` / `references/api_reference.md`：清单字段与命令。
 - `references/shot_qc.md`：逐镜验收：试拍、缺陷清单（P0/P1）、通过/剪用/重做判定与重做策略、关键镜头保护、QC.md 列。
-- `references/audio_qc.md`：音频两级验收（素材级 + 成片级）、判定标准、混音规范（48k、headroom、alimiter、loudnorm 两遍法、淡入淡出、acrossfade、不用硬开关随机门）和示例案例。
-- `references/quality_control.md`：画面、声音、内容（引用故事验收结果）和技术质检。
+- `references/audio_qc.md`：音频两级验收（素材级 + 成片级）、判定标准、混音规范（48k、headroom、alimiter、loudnorm 两遍法、淡入淡出、acrossfade、不用硬开关随机门）、音画同步检查和示例案例。
+- `references/quality_control.md`：全片缩略图看板（5 个问题、只修最严重 3 处）、画面、声音（含音画同步）、内容（引用故事验收结果）和技术质检。
 - `references/sources.md`：方法来源与许可（对外分发时保留）。

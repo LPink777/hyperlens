@@ -28,7 +28,7 @@ python3 scripts/story_lint.py <project>/                         # 检查 STORY/
 python3 scripts/video_pipeline.py init <project>/project.json --title "我的视频" --aspect 9:16
 ```
 
-该命令创建一个可直接构建的 3 秒标题项目；已有文件不会被覆盖。需要真实视频项目时，复制 `assets/project.template.json` 并替换素材路径。
+该命令创建一个可直接构建的 3 秒标题项目，并建好目录结构（`ref/ shots/ html/ images/ audio/ scripts/ frames/board/ qc/ output/`）和 `PROGRESS.md`（来自 `assets/PROGRESS.template.md`）；已有文件不会被覆盖。需要真实视频项目时，复制 `assets/project.template.json` 并替换素材路径。
 
 ## 检查项目
 
@@ -53,6 +53,15 @@ python3 scripts/video_pipeline.py build <project>/project.json \
   --output <project>/output/final.mp4
 ```
 
+多画幅与预览：
+
+```bash
+python3 scripts/video_pipeline.py check <project>/project.json --aspect 9:16 --json   # 某个画幅变体的检查（含 warnings）
+python3 scripts/video_pipeline.py build <project>/project.json --aspect 9:16          # 只出 9:16
+python3 scripts/video_pipeline.py build <project>/project.json --all                  # 主画幅 + output.variants 全部
+python3 scripts/video_pipeline.py build <project>/project.json --all --preview        # 每个画幅的半分辨率预览（看板用）
+```
+
 合成步骤：逐镜规范化 → 统一帧率和画幅 → 镜头音轨处理 → 顺序拼接 → 可选烧录字幕 → 可选音乐混合与响度规范化 → fast-start MP4 → 同名 SRT。
 
 ## 技术验证
@@ -73,6 +82,15 @@ python3 scripts/validate_video.py vertical.mp4 \
 - `--require-audio` 只用于应该有声音的交付。
 - `--vertical` 要求高 > 宽；`--min-bytes` 默认 10000（纯标题卡用 libx264 编码体积很小，属正常）。
 - 低分辨率测试可设 `--min-edge 360`，避免把草稿尺寸误判为编码失败。
+
+## 参考片拆解、音乐卡拍、看板
+
+```bash
+python3 scripts/ref_analyze.py ref/ref.mp4 --out ref/analysis                  # 切分、平均镜头长度、代表帧拼图、色板 HEX、明度/饱和度、风格说明草稿
+python3 scripts/beat_map.py analyze audio/music.wav --out audio/beats.json      # BPM、拍点、小节首拍、能量段落（numpy；--librosa 可选对照）
+python3 scripts/beat_map.py snap audio/beats.json --project project.json --fps 30   # 切点对齐到最近拍点，报告偏差和建议时长
+python3 scripts/storyboard_board.py --project project.json --preview            # 全片缩略图看板 + 手机尺寸版 + 审阅提示
+```
 
 ## 当前合成边界
 

@@ -28,6 +28,20 @@ const ease={ outExpo:x=>x>=1?1:1-Math.pow(2,-10*x), inOutSine:x=>-(Math.cos(Math
              outBack:x=>{const c=1.70158;return 1+(c+1)*Math.pow(x-1,3)+c*Math.pow(x-1,2);} };
 const spring=(x,zeta=0.55,w=14)=>x<=0?0:1-Math.exp(-zeta*w*x)*Math.cos(w*Math.sqrt(1-zeta*zeta)*x);
 const lerp=(a,b,x)=>a+(b-a)*x;
+// —— 动作按大小区分的预设（经验值，见 references/html_motion.md 第 6 节）——
+//   snap   小元素（按钮/图标/开关/勾选）：短促干脆，无过冲
+//   settle 大元素（面板/弹窗/卡片/整块画面）：有重量，减速落定，最多极小过冲
+//   textIn 文字进场：快进、位移小，之后静止停留（停留时长由 hold 估算，字在被读时不动）
+const MOTION={
+  snap:  { dur:0.18, dist:12, ease:x=>1-Math.pow(1-x,3) },                               // outCubic, 120–220ms
+  settle:{ dur:0.60, dist:80, ease:x=>{const w=8,f=u=>1-(1+w*u)*Math.exp(-w*u);return f(x)/f(1);} },  // 临界阻尼, 450–750ms
+  textIn:{ dur:0.32, dist:24, ease:x=>1-Math.pow(1-x,4) },                               // outQuart, 250–400ms
+};
+// enter(t, 开始秒, 预设名[, 覆盖]) → {p 进度0..1, o 透明度, dy 位移px, s 缩放}；退场用 enter(t,…) 反向或 1-p
+function enter(t,start,kind,over={}){ const m=Object.assign({},MOTION[kind],over), p=m.ease(seg(t,start,start+m.dur));
+  return { p, o:clamp(p*1.6), dy:(1-p)*m.dist, s:kind==='snap'?lerp(0.92,1,p):1 }; }
+// 中文文字最少停留秒数：字数 ÷ 4.5 + 1.5（与可读性规则一致）
+const hold=text=>[...text].length/4.5+1.5;
 function rng(seed){return ()=>{seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
 // 镜头关键帧：[{t, x, y, s}]，段间用 inOutSine；“手持感”用两个低频正弦，停住时归零
 function camera(t, keys){ let i=0; while(i<keys.length-2 && t>keys[i+1].t) i++;
@@ -44,8 +58,8 @@ window.__seek = function(t){
   $('dot').style.left=len+'px';
   Object.assign($('line').style,{left:cx+'px',top:(cy-6)+'px',width:len+'px'});
   Object.assign($('t1').style,{left:(cx-60)+'px',top:(cy-260)+'px',opacity:seg(t,0.35,0.6)*(1-seg(t,1.0,1.3))});
-  const k=ease.outBack(seg(t,1.4,1.9));
-  Object.assign($('t2').style,{left:(cx+len*0.15)+'px',top:(cy+60)+'px',opacity:seg(t,1.4,1.6),transform:`translateY(${(1-k)*60}px)`});
+  const e2=enter(t,1.4,'textIn');                               // 文字：快进 0.32s，之后静止停留
+  Object.assign($('t2').style,{left:(cx+len*0.15)+'px',top:(cy+60)+'px',opacity:e2.o,transform:`translateY(${e2.dy}px)`});
   const cam=camera(t,[{t:0,x:0,y:0,s:1.15},{t:2.0,x:0,y:0,s:1.15},{t:3.0,x:0,y:0,s:0.9}]);
   const ox=W/2, oy=H/2;
   $('world').style.transform=`translate(${ox}px,${oy}px) scale(${cam.s}) translate(${-ox+cam.x}px,${-oy+cam.y}px)`;
